@@ -54,6 +54,9 @@ class RouteForgeListCommand extends Command
 
         // 收集所有命名路由
         $rows = [];
+        // 层级计数（过滤前统计，反映完整路由表；别名跟随目标层级计入）
+        $levelCounts = [];
+        $levelByName = [];
         // 「有 tier 无 name」的路由无法进入任何元信息（RF_BE_005 仅严格模式抛出），
         // 非严格模式下静默消失排查极难，命令层直接在控制台暴露
         $tierNoNameWarnings = [];
@@ -88,6 +91,11 @@ class RouteForgeListCommand extends Command
 
             // --level 过滤（unassigned 特殊层级可与 --level=unassigned 对齐）
             $displayLevel = $level ?? 'unassigned';
+
+            // 计数在过滤前进行：汇总始终反映完整路由表
+            $levelCounts[$displayLevel] = ($levelCounts[$displayLevel] ?? 0) + 1;
+            $levelByName[$name] = $displayLevel;
+
             if ($filterLevel !== null && $filterLevel !== '' && $displayLevel !== $filterLevel) {
                 continue;
             }
@@ -109,6 +117,12 @@ class RouteForgeListCommand extends Command
         // 别名条目：跟随目标路由的层级归属，仅当目标路由通过过滤时追加
         $rowsByName = array_column($rows, null, 'name');
         foreach ($aliasResolution['aliases'] as $alias => $target) {
+            // 别名计数跟随目标层级（与摘要 route_count 口径一致）
+            $targetLevel = $levelByName[$target] ?? null;
+            if ($targetLevel !== null) {
+                $levelCounts[$targetLevel] = ($levelCounts[$targetLevel] ?? 0) + 1;
+            }
+
             $targetRow = $rowsByName[$target] ?? null;
             if ($targetRow === null) {
                 continue; // 目标被 --level/--unassigned 过滤掉，别名随目标一起隐藏
@@ -142,16 +156,35 @@ class RouteForgeListCommand extends Command
             $filter['aliases'] = true;
         }
 
+        // 层级汇总：全部已配置层级 + unassigned（0 也列出），顺序 = 配置顺序
+        $orderedCounts = [];
+        foreach ($levels as $level) {
+            $orderedCounts[$level] = $levelCounts[$level] ?? 0;
+        }
+        $orderedCounts['unassigned'] = $levelCounts['unassigned'] ?? 0;
+
         // JSON 输出（结构化对象，便于脚本消费；warnings 供 CI/脚本检测别名配置问题）
         if ($asJson) {
             $this->line(json_encode([
                 'levels' => $availableLevels,
                 'filter' => empty($filter) ? null : $filter,
                 'count'  => count($rows),
+                'tier_counts' => $orderedCounts,
                 'warnings' => array_merge($aliasWarnings, $tierNoNameWarnings),
                 'routes' => $rows,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             return 0;
+        }
+
+        // 层级统计汇总（unassigned 非零是「match 规则漏配」最常见的信号，主动提示）
+        $this->line('Tier counts: ' . implode(' | ', array_map(
+            fn (string $l, int $c): string => "{$l}: {$c}",
+            array_keys($orderedCounts),
+            $orderedCounts,
+        )));
+        if ($orderedCounts['unassigned'] > 0) {
+            $this->warn($orderedCounts['unassigned'] . " route(s) are unassigned and only available via the 'unassigned' tier. "
+                . 'Check match rules in config/forge.php or add explicit ->tier(...) markers.');
         }
 
         if (empty($rows)) {

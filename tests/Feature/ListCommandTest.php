@@ -220,4 +220,44 @@ class ListCommandTest extends TestCase
             $this->assertNotSame('/admin/unnamed', $route['uri']);
         }
     }
+
+    public function test_summary_counts_printed_with_unassigned_hint(): void
+    {
+        [$exit, $out] = $this->runList();
+
+        $this->assertSame(0, $exit);
+        // 各层级计数行（0 也列出，含 unassigned）
+        $this->assertStringContainsString('Tier counts:', $out);
+        $this->assertStringContainsString('public: 0', $out);
+        $this->assertStringContainsString('admin: 1', $out);
+        $this->assertStringContainsString('unassigned: 1', $out);
+        // unassigned 非零提示
+        $this->assertStringContainsString("1 route(s) are unassigned and only available via the 'unassigned' tier.", $out);
+    }
+
+    public function test_summary_no_unassigned_hint_when_all_assigned(): void
+    {
+        // 追加一个命中 orphan 前缀的层级，使 orphan 不再 unassigned
+        config(['forge.levels' => array_merge(config('forge.levels'), [
+            'catch' => ['description' => '', 'match' => ['prefix' => ['orphan']]],
+        ])]);
+
+        [$exit, $out] = $this->runList();
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('catch: 1', $out);
+        $this->assertStringContainsString('unassigned: 0', $out);
+        $this->assertStringNotContainsString('route(s) are unassigned', $out);
+    }
+
+    public function test_tier_counts_in_json_output(): void
+    {
+        [$exit, $out] = $this->runList(['--json' => true]);
+
+        $this->assertSame(0, $exit);
+        $decoded = json_decode($out, true);
+        $this->assertSame(0, $decoded['tier_counts']['public']);
+        $this->assertSame(1, $decoded['tier_counts']['admin']);
+        $this->assertSame(1, $decoded['tier_counts']['unassigned']);
+    }
 }
