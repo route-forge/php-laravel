@@ -267,4 +267,28 @@ class TypesCommandTest extends TestCase
 
         @unlink($outPath);
     }
+
+    public function test_empty_level_included_in_forge_level_and_dts(): void
+    {
+        // 测试路由只涉及 admin / client；配置中的 public / manage 为 0 路由空层级，
+        // 仍应进入 ForgeLevel 联合类型与映射（空对象块），前端引用空层级不再 TS 报错
+        [$exit, $out] = $this->runTypes();
+
+        $this->assertSame(0, $exit);
+        // ForgeLevel 联合类型包含全部配置层级
+        $this->assertStringContainsString("export type ForgeLevel = 'public' | 'client' | 'manage' | 'admin';", $out);
+        // 空层级输出空对象块
+        $this->assertStringContainsString('public: {', $out);
+        $this->assertStringContainsString('manage: {', $out);
+    }
+
+    public function test_empty_level_json_output_is_empty_object(): void
+    {
+        [$exit, $out] = $this->runTypes(['--json' => true]);
+
+        $this->assertSame(0, $exit);
+        // 空层级序列化为 {} 而非 []（与「按路由名索引的对象」契约一致）
+        $this->assertStringContainsString('"public": {}', $out);
+        $this->assertStringContainsString('"manage": {}', $out);
+    }
 }

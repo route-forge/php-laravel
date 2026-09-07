@@ -43,7 +43,10 @@ class RouteForgeTypesCommand extends Command
         }
 
         // 收集路由元信息（按层级分组）
-        $routesByLevel = [];
+        // 预置全部目标层级（含 0 路由的空层级）：保证 ForgeLevel 联合类型覆盖
+        // 所有已配置层级，前端引用「空层级」的路由名不再因类型缺失而 TS 报错
+        $targets = $filterLevel !== null && $filterLevel !== '' ? [$filterLevel] : $levels;
+        $routesByLevel = array_fill_keys($targets, []);
         // 「有 tier 无 name」的路由无法进入任何元信息（RF_BE_005 仅严格模式抛出），
         // 非严格模式下静默消失排查极难，命令层直接在控制台暴露
         $tierNoNameWarnings = [];
@@ -309,7 +312,8 @@ class RouteForgeTypesCommand extends Command
                 $entry['response'] = $r['response'];
                 $levelData[$name]  = $entry;
             }
-            $out[$level ?: 'unassigned'] = $levelData;
+            // (object) 强转：空层级序列化为 {} 而非 []，保持「按路由名索引的对象」契约
+            $out[$level ?: 'unassigned'] = (object) $levelData;
         }
         return json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
