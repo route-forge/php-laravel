@@ -291,4 +291,16 @@ class TypesCommandTest extends TestCase
         $this->assertStringContainsString('"public": {}', $out);
         $this->assertStringContainsString('"manage": {}', $out);
     }
+
+    public function test_dts_endpoint_comment_reflects_custom_prefix(): void
+    {
+        // 自定义 endpoint_prefix（含脏格式）时，d.ts 注释应输出规范化后的实际端点
+        config(['forge.endpoint_prefix' => 'api/forge/']);
+
+        [$exit, $out] = $this->runTypes();
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('// 端点: /api/forge', $out);
+        $this->assertStringNotContainsString('// 端点: /_forge/routes', $out);
+    }
 }
