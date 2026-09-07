@@ -64,7 +64,14 @@ class RouteForgeListCommand extends Command
                 continue;
             }
 
-            $level = $resolver->resolve($route);
+            // resolve 可能抛 Forge 系异常（RF_BE_001/002/004/005/006）：
+            // 与别名错误同款处理，输出 [错误码] 消息而非裸堆栈
+            try {
+                $level = $resolver->resolve($route);
+            } catch (ForgeExceptionContract $e) {
+                $this->error("[{$e->code()}] {$e->getMessage()}");
+                return 1;
+            }
             $methods = array_values(array_filter(
                 $route->methods(),
                 fn ($m) => strtoupper($m) !== 'HEAD'

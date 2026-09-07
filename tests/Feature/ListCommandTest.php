@@ -177,4 +177,18 @@ class ListCommandTest extends TestCase
         }
         $this->assertSame(3, $decoded['count']);
     }
+
+    public function test_strict_mode_unassigned_route_prints_code_instead_of_stack_trace(): void
+    {
+        // strict 模式下存在未分配路由：resolve 抛 RF_BE_001，
+        // 命令应输出 [错误码] 消息而非裸堆栈（与别名错误处理对齐）
+        config(['forge.strict_mode' => true]);
+
+        [$exit, $out] = $this->runList();
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('[RF_BE_001]', $out);
+        $this->assertStringContainsString('orphan', $out);
+        $this->assertStringNotContainsString('Stack trace', $out);
+    }
 }
