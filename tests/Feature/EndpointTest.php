@@ -275,6 +275,26 @@ class EndpointTest extends TestCase
         $this->assertSame(2, $payload['schemeVersion']);
     }
 
+    public function test_summary_cache_ttl_negative_normalized_to_null(): void
+    {
+        // 负值 TTL 与 RouteCache 行为一致（视为不缓存），摘要下发 null 而非 -5
+        config()->set('forge.cache_ttl', -5);
+
+        $payload = $this->get($this->summaryEndpoint())->json();
+
+        $this->assertNull($payload['config']['cache_ttl']);
+    }
+
+    public function test_summary_cache_ttl_env_string_cast_to_int(): void
+    {
+        // env('FORGE_CACHE_TTL') 返回字符串时应转 int 下发（契约 int|null）
+        config()->set('forge.cache_ttl', '120');
+
+        $payload = $this->get($this->summaryEndpoint())->json();
+
+        $this->assertSame(120, $payload['config']['cache_ttl']);
+    }
+
     public function test_unassigned_level_endpoint_returns_unassigned_routes(): void
     {
         RouteFacade::get('/admin/users', static function () {})
