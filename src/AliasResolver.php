@@ -57,10 +57,28 @@ class AliasResolver
     {
         $realNames = [];
         $aliases   = [];
+        $warnings  = [];
 
         foreach ($routes as $route) {
             $name = $route->getName();
-            if ($name === null || $name === '' || RouteRepository::isExcludedRouteName($name)) {
+            if ($name === null || $name === '') {
+                // 未命名路由上的 ->forgeAlias() 声明会随路由一起被忽略（别名跟随
+                // 目标路由的命名元信息注入，无名路由无元信息可挂载）。
+                // 收集警告而非无声丢失——否则声明者以为别名已生效。
+                $declared = $route->getAction()['forge_aliases'] ?? null;
+                if (is_array($declared)) {
+                    $uri = $route->uri();
+                    foreach ($declared as $alias) {
+                        if (is_string($alias) && $alias !== '') {
+                            $warnings[] = "Alias [{$alias}] is declared via ->forgeAlias() on an unnamed route ({$uri}); "
+                                . 'the declaration is ignored because the route has no name. '
+                                . 'Add ->name(...) to the route or move the alias to a named route.';
+                        }
+                    }
+                }
+                continue;
+            }
+            if (RouteRepository::isExcludedRouteName($name)) {
                 continue; // forge 自身端点与框架内部路由不参与别名体系
             }
             $realNames[$name] = true;
@@ -75,8 +93,6 @@ class AliasResolver
                 }
             }
         }
-
-        $warnings = [];
 
         // 合并 config 声明（宏优先：已存在的别名不被覆盖）
         foreach ($this->configAliases as $alias => $target) {

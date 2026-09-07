@@ -282,4 +282,23 @@ class RouteAliasTest extends TestCase
             ->tier('admin')
             ->forgeAlias();
     }
+
+    public function test_alias_on_unnamed_route_yields_warning_instead_of_silent_loss(): void
+    {
+        // 无名路由上的 forgeAlias() 声明无法挂载元信息（B7）：
+        // 不注入别名条目，但应产生 warning 而非静默消失
+        RouteFacade::get('/admin/anonymous', static function () {})
+            ->tier('admin')
+            ->forgeAlias('admin.users.index');
+
+        $routes = $this->get($this->endpoint('admin'))->json('routes');
+        $this->assertArrayNotHasKey('admin.users.index', $routes);
+
+        $buffer = new BufferedOutput();
+        $this->app->make(Kernel::class)->call('route:forge:list', ['--aliases' => true], $buffer);
+        $out = json_decode($buffer->fetch(), true, flags: JSON_THROW_ON_ERROR);
+
+        $found = array_filter($out['warnings'], fn (string $w) => str_contains($w, 'declared via ->forgeAlias() on an unnamed route'));
+        $this->assertNotEmpty($found, 'list --json warnings 应包含未命名路由别名警告');
+    }
 }
