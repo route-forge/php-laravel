@@ -263,10 +263,11 @@ class ListCommandTest extends TestCase
 
     public function test_table_marks_alias_rows_yellow_and_real_routes_plain(): void
     {
+        // 别名用非撞车名（admin.users.index 是 setUp 中的真实路由，撞车会被忽略）
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->forgeAlias('admin.users.index');
+            ->forgeAlias('admin.members.old');
 
         $buffer = new BufferedOutput();
         $buffer->setDecorated(true);
@@ -276,7 +277,7 @@ class ListCommandTest extends TestCase
         $this->assertSame(0, $exit);
         $this->assertStringContainsString('Name/Alias', $out);
         // 别名整行黄色（fg=yellow → \e[33m）：名称列与 Alias Of 列都着色
-        $this->assertStringContainsString("\033[33madmin.users.index", $out);
+        $this->assertStringContainsString("\033[33madmin.members.old", $out);
         $this->assertStringContainsString("\033[33madmin.members.index", $out);
         // 真实路由行默认颜色：行首无转义码（表头默认绿色，不能全局断言无 32m）
         $this->assertMatchesRegularExpression('/^\| admin\.members\.index /m', $out);
@@ -287,11 +288,33 @@ class ListCommandTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->forgeAlias('admin.users.index');
+            ->forgeAlias('admin.members.old');
 
         [$exit, $out] = $this->runList(['--json' => true]);
 
         $this->assertSame(0, $exit);
         $this->assertStringNotContainsString("\033[", $out, 'JSON 输出不得混入 ANSI 颜色码');
+    }
+
+    public function test_colliding_alias_declaration_rendered_as_red_row(): void
+    {
+        // 撞车声明（宏别名撞真实路由名）：真实路由优先，被忽略的声明以红色行
+        // 展示在表格中（仅 table；JSON routes 不含该行）
+        RouteFacade::get('/admin/members', static function () {})
+            ->name('admin.members.index')
+            ->tier('admin')
+            ->forgeAlias('admin.users.index'); // admin.users.index 是 setUp 中的真实路由
+
+        $buffer = new BufferedOutput();
+        $buffer->setDecorated(true);
+        $exit = $this->app->make(Kernel::class)->call('route:forge:list', [], $buffer);
+        $out = $buffer->fetch();
+
+        $this->assertSame(0, $exit);
+        // 撞车声明整行红色（fg=red → \e[31m），Alias Of 列指向其声明目标
+        $this->assertStringContainsString("\033[31madmin.users.index", $out);
+        $this->assertStringContainsString("\033[31madmin.members.index", $out);
+        // 配套 warning 已输出
+        $this->assertStringContainsString('collides with a real route name', $out);
     }
 }

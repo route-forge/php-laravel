@@ -302,4 +302,54 @@ class RouteAliasTest extends TestCase
         $this->assertStringContainsString('declared via ->forgeAlias() on an unnamed route', $raw);
         $this->assertStringContainsString('Add ->name(...) to the route', $raw);
     }
+
+    public function test_macro_alias_colliding_with_real_route_is_ignored_and_not_clobbering(): void
+    {
+        // 宏别名与真实路由名撞车：真实路由优先（修复前宏别名会静默覆盖
+        // 端点元信息中真实路由的条目，造成数据污染）
+        RouteFacade::get('/admin/users', static function () {})
+            ->name('admin.users.index')
+            ->tier('admin');
+        RouteFacade::get('/admin/members', static function () {})
+            ->name('admin.members.index')
+            ->tier('admin')
+            ->forgeAlias('admin.users.index');
+
+        $routes = $this->get($this->endpoint('admin'))->json('routes');
+
+        // 真实路由条目保持自己的元信息，未被别名覆盖
+        $this->assertSame('admin/users', $routes['admin.users.index']['uri']);
+        // 只出现一次 admin.users.index（撞车别名不注入）
+        $this->assertSame(['admin.users.index', 'admin.members.index'], array_keys($routes));
+
+        // list --json：warning 提示撞车
+        $buffer = new BufferedOutput();
+        $this->app->make(Kernel::class)->call('route:forge:list', ['--json' => true], $buffer);
+        $out = json_decode($buffer->fetch(), true, flags: JSON_THROW_ON_ERROR);
+        $found = array_filter($out['warnings'], fn (string $w) => str_contains($w, "Alias [admin.users.index] collides with a real route name"));
+        $this->assertNotEmpty($found);
+    }
+
+    public function test_macro_alias_declared_on_multiple_routes_first_wins_with_warning(): void
+    {
+        // 同一别名在多条路由上宏声明：先声明者优先，重复的记录警告
+        RouteFacade::get('/admin/first', static function () {})
+            ->name('admin.first')
+            ->tier('admin')
+            ->forgeAlias('shared.alias');
+        RouteFacade::get('/admin/second', static function () {})
+            ->name('admin.second')
+            ->tier('admin')
+            ->forgeAlias('shared.alias');
+
+        $routes = $this->get($this->endpoint('admin'))->json('routes');
+
+        $this->assertSame('admin/first', $routes['shared.alias']['uri']);
+
+        $buffer = new BufferedOutput();
+        $this->app->make(Kernel::class)->call('route:forge:list', ['--json' => true], $buffer);
+        $out = json_decode($buffer->fetch(), true, flags: JSON_THROW_ON_ERROR);
+        $found = array_filter($out['warnings'], fn (string $w) => str_contains($w, 'declared via ->forgeAlias() on multiple routes'));
+        $this->assertNotEmpty($found);
+    }
 }

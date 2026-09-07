@@ -105,16 +105,18 @@ class ForgeManagerControllerTest extends TestCase
 
     public function test_routes_api_marks_alias_entries(): void
     {
-        // 宏声明别名：admin.members.index 的旧名 admin.users.index（SPEC §3.1.7）
+        // 宏声明别名：admin.members.index 的旧名 admin.members.old（SPEC §3.1.7）。
+        // 别名不得与真实路由名撞车（setUp 中 admin.users.index 是真实路由，
+        // 撞车声明会被忽略——见 AliasResolver 撞车检查）
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->forgeAlias('admin.users.index');
+            ->forgeAlias('admin.members.old');
 
         $data = $this->get('/_forge/manager/api/routes')->json();
 
         $rowsByName = array_column($data['routes'], null, 'name');
-        $aliasRow = $rowsByName['admin.users.index'] ?? null;
+        $aliasRow = $rowsByName['admin.members.old'] ?? null;
         $this->assertNotNull($aliasRow, 'alias entry should appear in manager data');
         $this->assertSame('admin.members.index', $aliasRow['alias_of']);
         $this->assertSame($rowsByName['admin.members.index']['tier'], $aliasRow['tier']);

@@ -49,6 +49,7 @@ class AliasResolver
      * @return array{
      *   aliases:  array<string,string>,  别名 => 真实路由名
      *   warnings: string[],              非致命问题（撞车丢弃等），由 list/管理器展示
+     *   collisions: array<string,string>, 被忽略的撞车声明（别名 => 其声明指向），供 list 表格红行展示
      * }
      *
      * @throws AliasTargetException 任一别名的目标路由名在路由表中不存在
@@ -58,7 +59,11 @@ class AliasResolver
         $realNames = [];
         $aliases   = [];
         $warnings  = [];
+        $collisions = [];
 
+        // 第一遍：收集真实路由名与宏声明（按声明序，先声明者优先）
+        $macroDecls = [];     // alias => 首个声明它的真实路由名
+        $macroDupes = [];     // alias => 后续重复声明的真实路由名列表
         foreach ($routes as $route) {
             $name = $route->getName();
             if ($name === null || $name === '') {
@@ -87,16 +92,45 @@ class AliasResolver
             $declared = $route->getAction()['forge_aliases'] ?? null;
             if (is_array($declared)) {
                 foreach ($declared as $alias) {
-                    if (is_string($alias) && $alias !== '') {
-                        $aliases[$alias] = $name;
+                    if (!is_string($alias) || $alias === '') {
+                        continue;
+                    }
+                    if (isset($macroDecls[$alias])) {
+                        $macroDupes[$alias][] = $name;
+                    } else {
+                        $macroDecls[$alias] = $name;
                     }
                 }
             }
         }
 
-        // 合并 config 声明（宏优先：已存在的别名不被覆盖）
+        // 第二遍：宏声明统一过「真实名撞车」检查——撞车时真实路由优先，
+        // 别名声明被忽略并记录（此前仅 config 通道有此检查，宏通道会静默
+        // 覆盖端点元信息中真实路由的条目，属数据污染）
+        foreach ($macroDecls as $alias => $target) {
+            if (isset($realNames[$alias])) {
+                $collisions[$alias] = $target;
+                $warnings[] = "Alias [{$alias}] collides with a real route name; the real route wins and the alias is ignored.";
+                continue;
+            }
+            $aliases[$alias] = $target;
+        }
+
+        // 宏重复声明：同名别名落在多条路由上，先声明者优先，重复的警告
+        foreach ($macroDupes as $alias => $laterTargets) {
+            if (isset($collisions[$alias])) {
+                continue; // 该别名已因撞车被忽略，撞车警告已足够
+            }
+            $all = array_unique(array_merge([$macroDecls[$alias]], $laterTargets));
+            $warnings[] = "Alias [{$alias}] is declared via ->forgeAlias() on multiple routes ("
+                . implode(', ', $all) . '); the first declaration wins and the later ones are ignored.';
+        }
+
+        // 合并 config 声明（宏优先：已存在的别名不被覆盖）；撞车规则与宏通道一致
         foreach ($this->configAliases as $alias => $target) {
             if (isset($realNames[$alias])) {
+                // 红行展示取首次记录的指向（宏通道先记录则保留宏指向）
+                $collisions[$alias] ??= $target;
                 $warnings[] = "Alias [{$alias}] collides with a real route name; the real route wins and the alias is ignored.";
                 continue;
             }
@@ -109,7 +143,7 @@ class AliasResolver
             $aliases[$alias] = $target;
         }
 
-        // 悬空校验：目标必须是真实存在的用户路由名
+        // 悬空校验：目标必须是真实存在的用户路由名（撞车被忽略的声明不参与）
         foreach ($aliases as $alias => $target) {
             if (!isset($realNames[$target])) {
                 throw new AliasTargetException(
@@ -120,6 +154,6 @@ class AliasResolver
             }
         }
 
-        return ['aliases' => $aliases, 'warnings' => $warnings];
+        return ['aliases' => $aliases, 'warnings' => $warnings, 'collisions' => $collisions];
     }
 }

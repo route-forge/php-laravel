@@ -54,6 +54,7 @@ class RouteForgeListCommand extends Command
 
         // 收集所有命名路由
         $rows = [];
+        $infoByName = [];
         // 层级计数（过滤前统计，反映完整路由表；别名跟随目标层级计入）
         $levelCounts = [];
         $levelByName = [];
@@ -95,6 +96,9 @@ class RouteForgeListCommand extends Command
             // 计数在过滤前进行：汇总始终反映完整路由表
             $levelCounts[$displayLevel] = ($levelCounts[$displayLevel] ?? 0) + 1;
             $levelByName[$name] = $displayLevel;
+            // 完整信息表（过滤前记录）：撞车红行需按目标路由取层级/方法/URI，
+            // 不受当前过滤影响
+            $infoByName[$name] = ['level' => $displayLevel, 'methods' => $methods, 'uri' => $route->uri()];
 
             if ($filterLevel !== null && $filterLevel !== '' && $displayLevel !== $filterLevel) {
                 continue;
@@ -221,6 +225,20 @@ class RouteForgeListCommand extends Command
                 '—',
             ];
         }, $rows);
+
+        // 撞车声明红行（仅 table 展示）：被忽略的别名声明，配置问题需肉眼可见；
+        // 不进入 --json 的 routes 与端点元信息（真实路由优先，routes 只含可用名字）
+        foreach ($aliasResolution['collisions'] as $alias => $target) {
+            $info = $infoByName[$target] ?? null;
+            $red = static fn (string $cell): string => "<fg=red>{$cell}</>";
+            $tableRows[] = [
+                $red($alias),
+                $red($info['level'] ?? '—'),
+                $red(isset($info['methods']) ? implode('|', $info['methods']) : '—'),
+                $red($info['uri'] ?? '—'),
+                $red($target),
+            ];
+        }
 
         $this->table(['Name/Alias', 'Level', 'Methods', 'URI', 'Alias Of'], $tableRows);
         return 0;
