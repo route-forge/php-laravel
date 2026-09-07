@@ -54,9 +54,18 @@ class RouteForgeListCommand extends Command
 
         // 收集所有命名路由
         $rows = [];
+        // 「有 tier 无 name」的路由无法进入任何元信息（RF_BE_005 仅严格模式抛出），
+        // 非严格模式下静默消失排查极难，命令层直接在控制台暴露
+        $tierNoNameWarnings = [];
         foreach ($router->getRoutes() as $route) {
             $name = $route->getName();
             if ($name === null || $name === '') {
+                $tier = $route->getAction()['tier'] ?? null;
+                if (is_string($tier) && $tier !== '') {
+                    $tierNoNameWarnings[] = 'Route (' . $route->uri() . ') has tier [' . $tier
+                        . '] but no route name assigned; it will not appear in any forge endpoint or command output. '
+                        . 'Add ->name(...) to the route or remove the tier.';
+                }
                 continue;
             }
             // 跳过 forge 自身端点路由与框架内部路由（如 Laravel 12+ 的 storage.*）
@@ -139,7 +148,7 @@ class RouteForgeListCommand extends Command
                 'levels' => $availableLevels,
                 'filter' => empty($filter) ? null : $filter,
                 'count'  => count($rows),
-                'warnings' => $aliasWarnings,
+                'warnings' => array_merge($aliasWarnings, $tierNoNameWarnings),
                 'routes' => $rows,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             return 0;
@@ -163,6 +172,9 @@ class RouteForgeListCommand extends Command
         $this->table(['Name', 'Level', 'Methods', 'URI', 'Alias Of'], $tableRows);
 
         foreach ($aliasWarnings as $warning) {
+            $this->warn($warning);
+        }
+        foreach ($tierNoNameWarnings as $warning) {
             $this->warn($warning);
         }
         return 0;

@@ -44,9 +44,18 @@ class RouteForgeTypesCommand extends Command
 
         // 收集路由元信息（按层级分组）
         $routesByLevel = [];
+        // 「有 tier 无 name」的路由无法进入任何元信息（RF_BE_005 仅严格模式抛出），
+        // 非严格模式下静默消失排查极难，命令层直接在控制台暴露
+        $tierNoNameWarnings = [];
         foreach ($router->getRoutes() as $route) {
             $name = $route->getName();
             if ($name === null || $name === '') {
+                $tier = $route->getAction()['tier'] ?? null;
+                if (is_string($tier) && $tier !== '') {
+                    $tierNoNameWarnings[] = 'Route (' . $route->uri() . ') has tier [' . $tier
+                        . '] but no route name assigned; it will not appear in any forge endpoint or command output. '
+                        . 'Add ->name(...) to the route or remove the tier.';
+                }
                 continue;
             }
             if (RouteRepository::isExcludedRouteName($name)) {
@@ -128,11 +137,39 @@ class RouteForgeTypesCommand extends Command
             }
             File::put($outFile, $output);
             $this->info("Written to: {$outFile}");
+            $this->printTierNoNameWarnings($tierNoNameWarnings);
             return 0;
         }
 
+        $this->printTierNoNameWarnings($tierNoNameWarnings);
         $this->line($output);
         return 0;
+    }
+
+    /**
+     * 「有 tier 无 name」警告输出到 stderr：不带 --out 时 stdout 即产物本身
+     * （artisan route:forge:types > x.d.ts 重定向场景），警告不得混入产物；
+     * BufferedOutput（测试/Kernel::call）未实现 ConsoleOutputInterface，
+     * getErrorOutput 回退为同一输出，警告仍可捕获。
+     *
+     * @param string[] $tierNoNameWarnings
+     */
+    private function printTierNoNameWarnings(array $tierNoNameWarnings): void
+    {
+        if ($tierNoNameWarnings === []) {
+            return;
+        }
+
+        // 真实控制台下底层 output 是 ConsoleOutputInterface → 写 stderr；
+        // BufferedOutput（测试/Kernel::call）未实现该接口 → 回退同一输出，警告仍可捕获
+        $output = $this->output->getOutput();
+        $target = $output instanceof \Symfony\Component\Console\Output\ConsoleOutputInterface
+            ? $output->getErrorOutput()
+            : $output;
+
+        foreach ($tierNoNameWarnings as $warning) {
+            $target->writeln("<comment>{$warning}</comment>");
+        }
     }
 
     /**

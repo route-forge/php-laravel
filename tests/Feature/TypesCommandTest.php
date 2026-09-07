@@ -234,4 +234,37 @@ class TypesCommandTest extends TestCase
         $this->assertStringContainsString('[RF_BE_001]', $out);
         $this->assertStringNotContainsString('Stack trace', $out);
     }
+
+    public function test_tier_without_name_prints_warning_to_stderr(): void
+    {
+        // 有 tier 无 name：非严格模式下该路由静默消失，命令应在 stderr 暴露
+        // （stdout 是 d.ts 产物本身，警告不得混入）
+        RouteFacade::get('/admin/unnamed', static function () {})->tier('admin');
+
+        [$exit, $out] = $this->runTypes();
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('has tier [admin] but no route name assigned', $out);
+        // 警告不得污染 d.ts 产物结构（d.ts 主体仍完整输出）
+        $this->assertStringContainsString('declare module \'@route-forge/core\'', $out);
+    }
+
+    public function test_tier_without_name_warning_not_written_to_out_file(): void
+    {
+        RouteFacade::get('/admin/unnamed', static function () {})->tier('admin');
+
+        $outPath = sys_get_temp_dir() . '/forge-test/tier-no-name.d.ts';
+        @unlink($outPath);
+
+        [$exit, $console] = $this->runTypes(['--out' => $outPath]);
+
+        $this->assertSame(0, $exit);
+        // 警告仅走控制台（stderr 回退），产物文件内容干净
+        $this->assertStringContainsString('has tier [admin] but no route name assigned', $console);
+        $content = (string) file_get_contents($outPath);
+        $this->assertStringNotContainsString('has tier [admin]', $content);
+        $this->assertStringContainsString('interface ForgeRouteMap {', $content);
+
+        @unlink($outPath);
+    }
 }

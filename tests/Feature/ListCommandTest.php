@@ -191,4 +191,33 @@ class ListCommandTest extends TestCase
         $this->assertStringContainsString('orphan', $out);
         $this->assertStringNotContainsString('Stack trace', $out);
     }
+
+    public function test_tier_without_name_prints_console_warning(): void
+    {
+        // 有 tier 无 name：非严格模式下该路由静默消失，命令应在控制台直接暴露
+        RouteFacade::get('/admin/unnamed', static function () {})->tier('admin');
+
+        [$exit, $out] = $this->runList();
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('has tier [admin] but no route name assigned', $out);
+        $this->assertStringContainsString('Add ->name(...)', $out);
+    }
+
+    public function test_tier_without_name_warning_in_json_output(): void
+    {
+        RouteFacade::get('/admin/unnamed', static function () {})->tier('admin');
+
+        [$exit, $out] = $this->runList(['--json' => true]);
+
+        $this->assertSame(0, $exit);
+        $decoded = json_decode($out, true);
+        $this->assertNotEmpty($decoded['warnings']);
+        $found = array_filter($decoded['warnings'], fn (string $w) => str_contains($w, 'has tier [admin] but no route name assigned'));
+        $this->assertNotEmpty($found, 'JSON warnings 应包含 tier 无 name 警告');
+        // 无名路由不进入 routes 列表
+        foreach ($decoded['routes'] as $route) {
+            $this->assertNotSame('/admin/unnamed', $route['uri']);
+        }
+    }
 }
