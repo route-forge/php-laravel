@@ -7,6 +7,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- `route:forge:list`：新增层级统计汇总行（`Tier counts:`，含 0 路由层级与 unassigned，别名计入目标层级）；
+  unassigned 非零时主动提示检查 match 规则或补显式 tier（SPEC §3.2）
+- `route:forge:list` / `route:forge:types`：「有 tier 无 name」的路由直接在控制台暴露
+  （list 走 warning 行 / JSON warnings；types 走 stderr，不污染 stdout 产物）（SPEC §3.2）
+- `route:forge:types`：`ForgeLevel` 联合类型覆盖所有已配置层级（含 0 路由空层级），
+  `--json` 空层级输出 `{}` 而非 `[]`（SPEC §3.2）
+- 管理器配置页只读展示 `aliases` 映射，config API 同步下发，便于审计（SPEC §3.3）
+
 ### Fixed
 
 - 管理器保存配置不再静默丢失 `aliases` 映射：配置生成器原样透传（SPEC §3.3）
@@ -14,8 +24,13 @@
   改为日志告警（`strict_mode=true` 记 `error`，默认记 `warning`）；
   `DiscardedRegistrarAttributesException` / `RF_BE_007` 保留供兼容
 - 摘要端点 `config.endpoint_prefix` 下发规范化后的值（与端点注册路径一致，前端可直接拼接）；
-  `config.cache_ttl` 统一转为 `int|null`，不再出现 env 字符串
+  `config.cache_ttl` 统一转为 `int|null`（负值归一化为 `null`，与实际缓存行为一致），不再出现 env 字符串
 - 非严格模式下「有 tier 无 name」的路由记录 `warning`，不再静默消失
+- `route:forge:list` / `route:forge:types` 捕获路由解析异常，输出 `[错误码] 消息` 而非裸堆栈；
+  list 过滤后 0 行早退时不再吞掉警告输出
+- 严格模式异常消息补充修复指引（`->name` / `->tier` / match 规则 / 关闭 strict_mode）
+- 未命名路由上的 `->forgeAlias()` 声明不再静默丢失：别名解析器收集 warning 提示补 `->name(...)`（SPEC §3.1.7）
+- 生成 d.ts 文件头「端点」注释取实际 `endpoint_prefix`（规范化后），自定义前缀不再失真
 
 ### Docs
 
@@ -23,6 +38,10 @@
   声明 `unassigned` 为保留层级名，不可用作自定义层级
 - SPEC §3.2：`route:forge:clear --level` 会同步失效摘要缓存（修正原"摘要缓存不受影响"的描述）
 - SPEC §3.1.3 / §6：更新尾部链式属性被丢弃的行为说明与 RF_BE_007 触发场景
+- SPEC §3.1.6 / §3.1.7 / §3.2 / §3.3：同步本轮易用性变更（摘要 cache_ttl 负值归一化、
+  未命名路由别名警告、list/types 命令新行为、管理器 aliases 只读展示）
+- SPEC §3.2：补充 `route:forge:list` / `route:forge:types` 行为说明（层级统计汇总、
+  warnings 输出时机、空层级类型、stderr 警告通道、`--json` 新增 `tier_counts` 字段）
 
 ## [1.4.0] - 2026-09-03
 

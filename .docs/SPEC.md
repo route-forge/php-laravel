@@ -405,7 +405,8 @@ GET /_forge/routes   # 返回所有层级摘要 + 全局配置
     （层级端点 / 摘要端点）完全一致，前端可直接拼接使用；自定义配置如 `forge/routes/`
     也会以 `/forge/routes` 形式下发。
   - `cache_ttl`：统一为 `int|null`（`null` 不缓存）。经 `FORGE_CACHE_TTL` 环境变量配置时也会
-    转成整数下发，保证前后端契约类型稳定。
+    转成整数下发，保证前后端契约类型稳定；**负值归一化为 `null`**（与 §3.1.5 缓存策略中
+    「负值视为 null」的实际行为一致）。
   - `url_prefix`：应用的路由前缀，支持两种格式——完整 URL（含协议和域名，如
     `https://api.example.com/v1`）或仅路径前缀（如 `/api/v1`）。未配置时为 `null`，前端视为无前缀。
 
@@ -437,6 +438,7 @@ Route::get('/admin/members', [MemberController::class, 'index'])
 - 同一别名同时经宏与 config 声明时，**宏（显式）优先**；config 中目标不同则记录警告。
 - 别名与真实路由名撞车时，**真实路由优先**，别名被忽略（`route:forge:list` 的 warnings 中提示）。
 - 别名指向的路由名不存在（悬空，常见于路由删除后忘记清理别名）→ 抛 `AliasTargetException`（RF_BE_008），fail-fast。
+- **未命名路由上的 `->forgeAlias()` 声明被忽略并记录警告**（别名跟随目标路由的命名元信息注入，无名路由无元信息可挂载）：不注入别名条目，但 `route:forge:list` 的 warnings 中提示补 `->name(...)`，避免声明者误以为别名已生效。
 
 **行为细节：**
 
@@ -527,7 +529,11 @@ php artisan route:forge:list --aliases
 - `--level` 过滤时，若层级名不存在则提示可用层级列表；`unassigned` 特殊层级也可作为 `--level` 过滤值。
 - `--unassigned` 仅显示未命中任何层级的路由，与 `--level=unassigned` 等价。
 - 未分配路由在 table 输出中以 `unassigned` 显示（与 JSON 输出及特殊层级名保持一致）。
-- 别名条目（§3.1.7）跟随目标路由的层级与过滤条件显示，`Alias Of` 列（JSON 中为 `alias_of` 字段）标注指向的真实路由名；别名撞车被忽略等非致命问题以 warnings 提示（table 模式在表格后输出警告行）。
+- 表格上方输出**层级统计汇总行**（`Tier counts: ...`，含 0 路由的层级与 `unassigned`；计数在过滤前统计，别名跟随目标层级计入，与摘要 `route_count` 口径一致）。`unassigned` 非零时追加 warn 提示检查 match 规则或补显式 tier。
+- 路由解析抛出 Forge 异常（`RF_BE_001` 等）时输出 `[错误码] 消息` 并以退出码 1 结束，不打印堆栈。
+- 「有 tier 无 name」的路由（§3.1.4）在 table 模式输出 warning 行、JSON 模式合入 `warnings`——该类路由无法进入任何元信息，命令层直接暴露避免静默消失。
+- 警告（别名撞车 / tier 无 name）在**任何过滤结果下都输出**：过滤后 0 行早退时同样可见。
+- 别名条目（§3.1.7）跟随目标路由的层级与过滤条件显示，`Alias Of` 列（JSON 中为 `alias_of` 字段）标注指向的真实路由名；别名撞车被忽略等非致命问题以 warnings 提示（table 模式在表格前输出警告行）。
 
 ##### `--json` 输出结构
 
@@ -538,6 +544,7 @@ php artisan route:forge:list --aliases
   "levels": ["public", "client", "manage", "admin", "unassigned"],
   "filter": null,
   "count": 5,
+  "tier_counts": {"public": 1, "client": 1, "manage": 0, "admin": 2, "unassigned": 1},
   "warnings": [],
   "routes": [
     {
@@ -570,7 +577,8 @@ php artisan route:forge:list --aliases
 - `levels`：当前可用层级列表（始终含 `unassigned` 特殊层级）。
 - `filter`：当前过滤条件（`--level` / `--unassigned` / `--aliases`），无过滤时为 `null`。
 - `count`：匹配路由总数。
-- `warnings`：非致命问题（如别名撞车被忽略），供 CI/脚本检测别名配置问题；无问题时为空数组。
+- `tier_counts`：各层级路由计数（过滤前统计；含 0 路由层级与 `unassigned`；别名计入目标层级，与摘要 `route_count` 一致）。
+- `warnings`：非致命问题（别名撞车被忽略、「有 tier 无 name」等），供 CI/脚本检测配置问题；无问题时为空数组。
 - `routes`：路由条目数组，每条含 `name`、`level`（未分配为 `"unassigned"`）、`methods`、`uri`、`alias_of`（真实路由名为 `null`，别名为指向的目标路由名，见 §3.1.7）。
 
 > 设计意图：开发阶段最常被问到的问题是"我的路由到底被分到了哪个层级"。这个命令让开发者无需启动前端、无需打开浏览器，一条命令即可验证配置效果。
@@ -589,6 +597,14 @@ php artisan route:forge:types --out=../frontend/src/types/forge-routes.d.ts
 # JSON 格式输出（便于脚本或工具链二次消费）
 php artisan route:forge:types --json
 ```
+
+行为说明：
+
+- `ForgeLevel` 联合类型覆盖**所有已配置层级**（含 0 路由的空层级，映射中输出空对象块），前端引用空层级名不会 TS 报错；`--level` 过滤时仅含该层级。
+- `--json` 输出中空层级序列化为 `{}`（与「按路由名索引的对象」契约一致，不会出现 `[]`）。
+- d.ts 文件头「端点」注释取实际 `endpoint_prefix`（经与端点注册相同的规范化）。
+- 「有 tier 无 name」的路由输出 warning 到 **stderr**（stdout 即 d.ts 产物本身，警告不混入重定向产物）。
+- 路由解析抛出 Forge 异常（`RF_BE_001` 等）时输出 `[错误码] 消息` 并以退出码 1 结束，不打印堆栈。
 
 生成结果示例（d.ts）：
 
@@ -777,6 +793,8 @@ PUT /_forge/manager/api/config   # 更新配置文件
 - 配置保存会重新生成 `config/forge.php` 文件；若存在编译缓存的配置（`php artisan config:cache`）则一并清除，使下一个请求重新读取配置文件生效。开发环境通常未缓存配置，下一个请求即时读取新文件。
   - 已配置 `classifier` 回调时拒绝保存并返回 422（闭包无法序列化回配置文件，避免静默抹掉回调）；
   - 不在表单中编辑的配置项（`endpoint_middleware`、`manager_allowed_ips`、**`aliases`**）保存时原样透传，不会丢失；
+  - `aliases` 映射在配置页以**只读区块**展示（别名 → 真实路由名），便于审计；编辑走 `config/forge.php`
+    或路由宏 `->forgeAlias()`；
   - ⚠ 保存会把整个 `config/forge.php` 重写为静态值：通过 `env('FORGE_*')` 提供的动态覆盖（如
     `FORGE_CACHE_TTL`）会被展开为字面量，保存后不再响应环境变量变更；如需保留 env 覆盖能力，请手工编辑配置文件。
 - 表格区域限高（`max-height: calc(100vh - 240px)`），路由多时表格内部滚动，表头 sticky 吸顶。
