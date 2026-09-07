@@ -5,6 +5,25 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Fixed
+
+- 管理器保存配置不再静默丢失 `aliases` 映射：配置生成器原样透传（SPEC §3.3）
+- `ForgeRouteRegistrar::__destruct` 不再抛异常：PHP 析构期间抛异常在栈展开场景会致命错误且无法 catch，
+  改为日志告警（`strict_mode=true` 记 `error`，默认记 `warning`）；
+  `DiscardedRegistrarAttributesException` / `RF_BE_007` 保留供兼容
+- 摘要端点 `config.endpoint_prefix` 下发规范化后的值（与端点注册路径一致，前端可直接拼接）；
+  `config.cache_ttl` 统一转为 `int|null`，不再出现 env 字符串
+- 非严格模式下「有 tier 无 name」的路由记录 `warning`，不再静默消失
+
+### Docs
+
+- SPEC §3.1.2：明确 `prefix` 与 `middleware` 为 OR 关系（任一命中即归入）；
+  声明 `unassigned` 为保留层级名，不可用作自定义层级
+- SPEC §3.2：`route:forge:clear --level` 会同步失效摘要缓存（修正原"摘要缓存不受影响"的描述）
+- SPEC §3.1.3 / §6：更新尾部链式属性被丢弃的行为说明与 RF_BE_007 触发场景
+
 ## [1.4.0] - 2026-09-03
 
 ### Added

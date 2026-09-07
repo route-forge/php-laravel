@@ -116,6 +116,11 @@ return [
 
 - `prefix`：路由 URI 命中任意一个前缀即归入此层级（支持多个）。
 - `middleware`：路由中间件集合按 `middleware_match` 规则匹配（详见下方「中间件匹配模式」）。
+- **`prefix` 与 `middleware` 之间是 OR（任一命中即归入）关系**：路由命中任意一个
+  `prefix` 前缀即归入此层级，即使其不满足 `middleware` 条件；反之，中间件命中而
+  前缀不命中同样归入。⚠ 若你期望「前缀与中间件**同时**满足才归入」，请只使用
+  `middleware` 规则（配合 `middleware_match`）表达，或改用 `classifier` 回调——
+  不要在 `prefix` 上寄托 AND 语义。
 - 显式 `->tier()` 标记优先级最高，覆盖配置匹配结果（见 3.1.4）。
 - 多个层级同时命中时，按 `levels` 数组定义顺序取最后一个（后定义覆盖前定义，与 `Route::group`
   内层覆盖外层的语义一致）。因此把新层级**追加到数组末尾**即可生效，无需改动已有层级；但反过来说，
@@ -126,6 +131,11 @@ return [
   §3.1.4），用于实现复杂自定义分类逻辑（如基于 Controller 命名空间归类）。 **注意**：由于显式 `->tier()`
   会直接返回不继续匹配，classifier 实际无法覆盖显式 tier，仅对未显式标注的路由生效。返回的层级名必须在
   `levels` 配置中存在，否则抛 `UnknownClassifierTierException`（无论 `strict_mode` 是否开启）。
+
+> ⚠️ **`unassigned` 是保留层级名**：它是未命中任何层级的路由的兜底特殊层级（见 §3.1.4 /
+> §3.1.5），**不能**用作 `levels` 中的自定义层级名。若在 `levels` 中定义了名为
+> `unassigned` 的层级，它会被当作特殊层级处理——其 `match`、`description`、
+> `endpoint_middleware` 等配置全部失效且**无任何提示**，请勿使用。
 
 ##### 中间件匹配模式（`middleware_match`）
 
@@ -211,7 +221,10 @@ group 属性合并逻辑），`tier` 透传到组内每条路由的 action，等
 > ⚠️ **尾部链式写法不受支持**：`Route::group([...], fn)->tier('x')` 不会将 `tier` 应用于该组。
 > Laravel 的 `group()` 返回时组内路由已注册完毕、组属性已出栈，其后链式创建的 Registrar 属性无消费方，
 > 会被静默丢弃。Forge 对此场景做运行时检测：持有属性却从未注册 group/路由的 Registrar 被销毁时，
-> 向 Laravel 日志写入一条 `warning`（含被丢弃的属性名与正确写法提示）。
+> 向 Laravel 日志写入一条告警（含被丢弃的属性名与正确写法提示）——默认 `warning` 级别；
+> `strict_mode=true` 时升级为 `error` 级别（不在析构中抛异常：PHP 析构期间抛异常在栈展开场景会
+> 直接致命错误且无法被 catch，日志告警更可靠；`DiscardedRegistrarAttributesException` / `RF_BE_007`
+> 保留供兼容，不再自动抛出）。
 > 组级 `tier` 只支持两种写法：数组选项 `Route::group(['tier' => ...], fn)` 与前置链式 `Route::tier(...)->group(fn)`。
 
 #### 3.1.4 层级分配优先级
@@ -388,6 +401,11 @@ GET /_forge/routes   # 返回所有层级摘要 + 全局配置
   - `unassigned`：特殊层级，与已定义层级结构完全一致，汇总所有未命中任何层级的命名路由。其路由明细不在摘要中内联返回，前端按 `route` 字段另行请求 `GET /{endpoint_prefix}/unassigned` 获取（见 §3.1.5）。
 + `config`：后端全局配置摘要。前端初始化时读取此字段作为最高优先级配置源（后端为权威值，覆盖前端本地配置）。当前包含
   `strict_mode`、`endpoint_prefix`、`url_prefix` 和 `cache_ttl`，后续版本可扩展。
+  - `endpoint_prefix`：下发值经**规范化**（保证前导 `/`、去除尾部 `/`），与端点实际注册路径
+    （层级端点 / 摘要端点）完全一致，前端可直接拼接使用；自定义配置如 `forge/routes/`
+    也会以 `/forge/routes` 形式下发。
+  - `cache_ttl`：统一为 `int|null`（`null` 不缓存）。经 `FORGE_CACHE_TTL` 环境变量配置时也会
+    转成整数下发，保证前后端契约类型稳定。
   - `url_prefix`：应用的路由前缀，支持两种格式——完整 URL（含协议和域名，如
     `https://api.example.com/v1`）或仅路径前缀（如 `/api/v1`）。未配置时为 `null`，前端视为无前缀。
 
@@ -721,7 +739,8 @@ php artisan route:forge:clear --level=admin
 行为说明：
 
 - 全量清除时通过 `RouteCache::clear()` 基于 keys 索引一次性清空所有 `route-forge:*` 缓存键（含摘要端点 `route-forge:summary`）。
-- `--level` 清除时仅失效指定层级的缓存键，摘要端点缓存不受影响。
+- `--level` 清除时失效指定层级的缓存键，并**同步失效摘要端点缓存**——摘要中该层级的
+  `route_count` 依赖路由数据，层级清理后统计会变化，缓存中的旧摘要不再可信。
 - `--level` 指定的层级名不存在时提示可用层级列表。
 - 开发模式（`APP_DEBUG=true`）下缓存本就不写入，执行此命令无实际效果但不会报错。
 - 联动清除：执行 Laravel 内置的 `php artisan route:clear` 时，自动连带清除 Route Forge 缓存（通过监听 `CommandStarting` 事件实现）。
@@ -757,7 +776,9 @@ PUT /_forge/manager/api/config   # 更新配置文件
   五级优先级）。
 - 配置保存会重新生成 `config/forge.php` 文件；若存在编译缓存的配置（`php artisan config:cache`）则一并清除，使下一个请求重新读取配置文件生效。开发环境通常未缓存配置，下一个请求即时读取新文件。
   - 已配置 `classifier` 回调时拒绝保存并返回 422（闭包无法序列化回配置文件，避免静默抹掉回调）；
-  - 不在表单中编辑的配置项（`endpoint_middleware`、`manager_allowed_ips`）保存时原样透传，不会丢失。
+  - 不在表单中编辑的配置项（`endpoint_middleware`、`manager_allowed_ips`、**`aliases`**）保存时原样透传，不会丢失；
+  - ⚠ 保存会把整个 `config/forge.php` 重写为静态值：通过 `env('FORGE_*')` 提供的动态覆盖（如
+    `FORGE_CACHE_TTL`）会被展开为字面量，保存后不再响应环境变量变更；如需保留 env 覆盖能力，请手工编辑配置文件。
 - 表格区域限高（`max-height: calc(100vh - 240px)`），路由多时表格内部滚动，表头 sticky 吸顶。
 - 前端零构建依赖：Blade 视图 + 原生 CSS + 原生 JavaScript，无需 Node.js 构建流程。
 
@@ -798,7 +819,7 @@ PUT /_forge/manager/api/config   # 更新配置文件
 | `ClassifierException`                   | `RF_BE_004` | `classifier` 回调抛错                                                   | 500       |
 | `RouteMissingNameException`             | `RF_BE_005` | `strict_mode=true` 且路由设置了 tier 但没有路由名                       | 500       |
 | `UnknownClassifierTierException`        | `RF_BE_006` | `classifier` 返回的层级名不在 `levels` 配置中                           | 500       |
-| `DiscardedRegistrarAttributesException` | `RF_BE_007` | `strict_mode=true` 且 `Route::group(...)->tier(...)` 尾部链式属性被丢弃 | 500       |
+| `DiscardedRegistrarAttributesException` | `RF_BE_007` | 尾部链式属性被丢弃（`Route::group(...)->tier(...)`）：自 v1.4.x 起不再自动抛出，改为日志告警（`strict_mode=true` 记 `error`、默认记 `warning`），异常类保留供兼容 | — |
 | `AliasTargetException`                  | `RF_BE_008` | 别名指向的路由名不存在（悬空别名，见 §3.1.7）                          | 500       |
 
 ## 7. 测试矩阵

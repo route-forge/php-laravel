@@ -253,6 +253,21 @@ class TierResolverTest extends TestCase
         $this->assertNull($resolver->resolve($route));
     }
 
+    public function test_non_strict_mode_logs_warning_when_tier_set_but_no_name(): void
+    {
+        // 非严格模式下「有 tier 无 name」应记录 warning（B4：不再静默消失）
+        $logger = $this->createMock(\Psr\Log\LoggerInterface::class);
+        $logger->expects($this->once())->method('warning')->with(
+            $this->stringContains('has tier [admin] but no route name assigned')
+        );
+
+        $resolver = new TierResolver([], null, strictMode: false, logger: $logger);
+
+        $route = $this->makeUnnamedRoute('/admin/users', [], ['tier' => 'admin']);
+
+        $this->assertNull($resolver->resolve($route));
+    }
+
     public function test_no_tier_no_name_does_not_throw(): void
     {
         // 没有 tier 也没有 name，不应触发 RouteMissingNameException

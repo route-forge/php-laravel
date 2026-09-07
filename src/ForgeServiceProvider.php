@@ -184,6 +184,11 @@ class ForgeServiceProvider extends ServiceProvider
                 levelsConfig: $app->make('config')->get('forge.levels', []),
                 classifier: $classifier,
                 strictMode: (bool) $app->make('config')->get('forge.strict_mode', false),
+                // 注入 PSR-3 logger：非严格模式下「有 tier 无 name」的路由打 warning，
+                // 避免配置错误静默消失（纯单元测试不注入时静默，不影响解析）。
+                logger: $app->bound(\Psr\Log\LoggerInterface::class)
+                    ? $app->make(\Psr\Log\LoggerInterface::class)
+                    : null,
             );
         });
 

@@ -154,6 +154,9 @@ class ForgeManagerController extends Controller
         $managerAllowedIps = $this->exportInlineArray(
             array_values(array_map('strval', (array) config('forge.manager_allowed_ips', ['127.0.0.1', '::1'])))
         );
+        // 路由别名映射表同样不在表单中编辑，保留现有配置值避免保存时静默丢失
+        // （SPEC §3.1.7：aliases 是集中声明通道之一，被抹掉会让前端旧路由名全部失效）
+        $aliases = $this->exportAssocArray((array) config('forge.aliases', []));
 
         return <<<PHP
 <?php
@@ -236,6 +239,13 @@ return [
     |--------------------------------------------------------------------------
     */
     'manager_allowed_ips' => {$managerAllowedIps},
+
+    /*
+    |--------------------------------------------------------------------------
+    | 路由别名映射表（aliases）
+    |--------------------------------------------------------------------------
+    */
+    'aliases'           => {$aliases},
 ];
 
 PHP;
@@ -321,6 +331,21 @@ PHP;
             return '[]';
         }
         $items = array_map(fn($v) => var_export($v, true), array_values($arr));
+        return '[' . implode(', ', $items) . ']';
+    }
+
+    /**
+     * 将字符串关联数组（键=别名，值=真实路由名）导出为单行 PHP 数组字面量。
+     */
+    private function exportAssocArray(array $map): string
+    {
+        if (empty($map)) {
+            return '[]';
+        }
+        $items = [];
+        foreach ($map as $alias => $target) {
+            $items[] = var_export((string) $alias, true) . ' => ' . var_export((string) $target, true);
+        }
         return '[' . implode(', ', $items) . ']';
     }
 

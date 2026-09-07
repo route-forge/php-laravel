@@ -9,7 +9,6 @@ use Closure;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\RouteRegistrar as BaseRouteRegistrar;
 use Illuminate\Support\Facades\Log;
-use RouteForge\Laravel\Exceptions\DiscardedRegistrarAttributesException;
 use RouteForge\Laravel\Exceptions\UnknownLevelException;
 use Throwable;
 use UnitEnum;
@@ -26,8 +25,10 @@ use UnitEnum;
  * 的写法中，group() 内部已完成组内路由注册并将组属性出栈，其后链式调用落在一个全新的
  * Registrar 上，属性不会作用于已注册的组，若无后续消费会被静默丢弃。
  * 本类通过 __destruct 检测「持有属性却从未注册 group/路由」的实例：
- *   - strict_mode=true 时抛 DiscardedRegistrarAttributesException；
- *   - 否则记录 Log::warning。
+ *   - 默认：记录 Log::warning；
+ *   - strict_mode=true 时：记录 Log::error（不在析构中抛异常——
+ *     PHP 析构期间抛异常在栈展开场景会直接致命错误且无法被 catch，改为日志更可靠。
+ *     DiscardedRegistrarAttributesException / RF_BE_007 保留供兼容，不再自动抛出）。
  * 正确写法：`Route::group(['tier' => 'x'], ...)` 或 `Route::tier('x')->group(...)`。
  *
  * @method BaseRouteRegistrar tier(string $tier)
@@ -131,7 +132,8 @@ class ForgeRouteRegistrar extends BaseRouteRegistrar
      * 典型成因：`Route::group(...)->tier('x')` —— group() 返回时组已注册完毕、
      * 组属性已出栈，尾部链式属性挂在新 Registrar 上无任何消费方。
      *
-     * strict_mode=true 时抛异常，否则记录警告日志。
+     * 不在析构中抛异常：PHP 析构期间抛异常在栈展开（异常处理中）场景会直接
+     * fatal 且无法被 catch；改为日志告警（strict_mode=true 时 error，否则 warning）。
      */
     public function __destruct()
     {
@@ -151,12 +153,12 @@ class ForgeRouteRegistrar extends BaseRouteRegistrar
             // 应用销毁阶段容器可能已不可用
         }
 
-        if ($strictMode) {
-            throw new DiscardedRegistrarAttributesException($message);
-        }
-
         try {
-            Log::warning($message);
+            if ($strictMode) {
+                Log::error($message);
+            } else {
+                Log::warning($message);
+            }
         } catch (Throwable) {
             // 应用销毁阶段日志组件可能已不可用，静默忽略
         }

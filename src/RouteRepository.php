@@ -218,11 +218,16 @@ readonly class RouteRepository
 
         // 全局配置摘要
         $urlPrefix = config('forge.url_prefix');
+        $cacheTtl  = config('forge.cache_ttl');
         $config = [
             'strict_mode'     => config('forge.strict_mode', false),
-            'endpoint_prefix' => (string)config('forge.endpoint_prefix', '/_forge/routes'),
+            // 与端点注册路径保持同一规范化（/ 前缀、无尾部斜杠），
+            // 避免自定义 endpoint_prefix（如 'forge/routes/'）下发值与实际路径不一致
+            'endpoint_prefix' => $endpointPrefix,
             'url_prefix' => is_string($urlPrefix) && $urlPrefix !== '' ? $urlPrefix : null,
-            'cache_ttl'       => config('forge.cache_ttl'),
+            // 统一转为 int|null：经 FORGE_CACHE_TTL env 配置时 Laravel env() 返回字符串
+            //（env 只转 true/false/null/空，不转数字），与 SPEC §5 声明的 int|null 契约对齐
+            'cache_ttl'       => $cacheTtl !== null ? (int) $cacheTtl : null,
         ];
 
         $payload = [

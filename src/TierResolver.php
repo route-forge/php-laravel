@@ -7,6 +7,7 @@ namespace RouteForge\Laravel;
 use Closure;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Arr;
+use Psr\Log\LoggerInterface;
 use RouteForge\Laravel\Exceptions\ClassifierException;
 use RouteForge\Laravel\Exceptions\RouteMissingNameException;
 use RouteForge\Laravel\Exceptions\RouteTierNotAssignedException;
@@ -28,9 +29,10 @@ use Throwable;
 readonly class TierResolver
 {
     public function __construct(
-        private array    $levelsConfig,
-        private ?Closure $classifier = null,
-        private bool     $strictMode = false,
+        private array           $levelsConfig,
+        private ?Closure        $classifier = null,
+        private bool            $strictMode = false,
+        private ?LoggerInterface $logger = null,
     ) {}
 
     /**
@@ -53,7 +55,15 @@ readonly class TierResolver
                     . 'Route Forge requires a route name when tier is set.'
                 );
             }
-            // 非严格模式：有 tier 无 name 的路由无法被纳入元信息，直接返回 null
+            // 非严格模式：有 tier 无 name 的路由无法被纳入元信息。
+            // 记录 warning 提示配置错误——否则该路由在层级端点、unassigned、
+            // route:forge:list / types 中都不出现，排查极其困难（RF_BE_005 仅严格模式抛出）。
+            // logger 为 null（纯单元测试/未注入）时静默，不影响解析结果。
+            $this->logger?->warning(
+                'Route (' . $route->uri() . ') has tier [' . $explicit . '] but no route name assigned; '
+                . 'it will not appear in any forge endpoint or command output. '
+                . 'Add ->name(...) to the route or remove the tier.'
+            );
             return null;
         }
     

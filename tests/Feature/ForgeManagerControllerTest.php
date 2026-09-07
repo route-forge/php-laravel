@@ -112,9 +112,10 @@ class ForgeManagerControllerTest extends TestCase
     public function test_update_config_preserves_uneditable_settings(): void
     {
         // 修复前：生成器硬编码 'endpoint_middleware' => []，保存即静默丢失现有配置。
-        // manager_allowed_ips 同理：不在管理器表单中编辑，保存时必须原样透传。
+        // manager_allowed_ips / aliases 同理：不在管理器表单中编辑，保存时必须原样透传。
         config()->set('forge.endpoint_middleware', ['auth', 'throttle']);
         config()->set('forge.manager_allowed_ips', ['127.0.0.1', '::1', '192.168.1.10']);
+        config()->set('forge.aliases', ['admin.users.index' => 'admin.members.index']);
 
         $response = $this->putJson('/_forge/manager/api/config', [
             'levels' => config('forge.levels'),
@@ -131,6 +132,11 @@ class ForgeManagerControllerTest extends TestCase
         $this->assertStringContainsString("'endpoint_middleware' => ['auth', 'throttle']", $written);
         $this->assertStringContainsString(
             "'manager_allowed_ips' => ['127.0.0.1', '::1', '192.168.1.10']",
+            $written,
+        );
+        // aliases 不在表单中编辑，保存时必须原样透传，避免旧路由名全部失效
+        $this->assertStringContainsString(
+            "'aliases'           => ['admin.users.index' => 'admin.members.index']",
             $written,
         );
     }

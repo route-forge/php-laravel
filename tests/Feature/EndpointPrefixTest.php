@@ -49,8 +49,9 @@ class EndpointPrefixTest extends TestCase
 
         $this->assertSame('/api/forge/admin', $summary['levels']['admin']['route']['uri']);
         $this->assertSame('/api/forge/unassigned', $summary['levels']['unassigned']['route']['uri']);
-        // config.endpoint_prefix 回显原始配置值
-        $this->assertSame('api/forge/', $summary['config']['endpoint_prefix']);
+        // config.endpoint_prefix 下发规范化后的值（与端点注册路径一致），
+        // 前端可直接拼接使用，不会拿到 'api/forge/' 这类脏前缀
+        $this->assertSame('/api/forge', $summary['config']['endpoint_prefix']);
     }
 
     public function test_default_prefix_not_leaked_when_custom_set(): void

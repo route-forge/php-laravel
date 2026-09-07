@@ -8,7 +8,6 @@ use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Orchestra\Testbench\TestCase;
-use RouteForge\Laravel\Exceptions\DiscardedRegistrarAttributesException;
 use RouteForge\Laravel\Exceptions\UnknownLevelException;
 use RouteForge\Laravel\ForgeServiceProvider;
 
@@ -156,17 +155,22 @@ class GroupTierTest extends TestCase
         $this->assertSame('admin', $this->routeTier('silent'));
     }
 
-    public function test_trailing_tier_after_group_throws_in_strict_mode(): void
+    public function test_trailing_tier_after_group_logs_error_in_strict_mode(): void
     {
-        // strict_mode=true 时，尾部链式属性被丢弃应抛异常
+        // strict_mode=true 时，尾部链式属性被丢弃：析构函数中不再抛异常
+        // （PHP 析构抛异常在栈展开场景会 fatal 且无法 catch），改为记录 error 日志。
         config(['forge.strict_mode' => true]);
 
-        $this->expectException(DiscardedRegistrarAttributesException::class);
+        Log::shouldReceive('error')->once();
+        Log::shouldReceive('warning')->never();
 
         RouteFacade::group(['as' => 'strict.'], function () {
             RouteFacade::get('/strict', static function () {})
                 ->name('route');
         })->tier('public');
+
+        // tier 已被丢弃：组内路由无 tier
+        $this->assertNull($this->routeTier('strict.route'));
     }
 
     // ---------------------------------------------------------------------
