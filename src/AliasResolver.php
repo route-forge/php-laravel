@@ -12,7 +12,7 @@ use RouteForge\Laravel\Exceptions\AliasTargetException;
  * 路由别名解析器（SPEC §3.1.7）。
  *
  * 将两个声明通道合并为一张「别名 → 真实路由名」映射表：
- *   1. 路由宏 ->forgeAlias('旧名')——别名声明写在被指向（新名）路由上，
+ *   1. 路由宏 ->alias('旧名')——别名声明写在被指向（新名）路由上，
  *      扫描路由表时从 action['forge_aliases'] 读取；
  *   2. config/forge.php 的 'aliases' => ['旧名' => '新名']——集中批量声明。
  *
@@ -62,7 +62,7 @@ class AliasResolver
         foreach ($routes as $route) {
             $name = $route->getName();
             if ($name === null || $name === '') {
-                // 未命名路由上的 ->forgeAlias() 声明会随路由一起被忽略（别名跟随
+                // 未命名路由上的 ->alias() 声明会随路由一起被忽略（别名跟随
                 // 目标路由的命名元信息注入，无名路由无元信息可挂载）。
                 // 收集警告而非无声丢失——否则声明者以为别名已生效。
                 $declared = $route->getAction()['forge_aliases'] ?? null;
@@ -70,7 +70,7 @@ class AliasResolver
                     $uri = $route->uri();
                     foreach ($declared as $alias) {
                         if (is_string($alias) && $alias !== '') {
-                            $warnings[] = "Alias [{$alias}] is declared via ->forgeAlias() on an unnamed route ({$uri}); "
+                            $warnings[] = "Alias [{$alias}] is declared via ->alias() on an unnamed route ({$uri}); "
                                 . 'the declaration is ignored because the route has no name. '
                                 . 'Add ->name(...) to the route or move the alias to a named route.';
                         }
@@ -102,7 +102,7 @@ class AliasResolver
             }
             if (isset($aliases[$alias])) {
                 if ($aliases[$alias] !== $target) {
-                    $warnings[] = "Alias [{$alias}] is declared both via ->forgeAlias() [→ {$aliases[$alias]}] and config [→ {$target}]; the explicit macro wins.";
+                    $warnings[] = "Alias [{$alias}] is declared both via ->alias() [→ {$aliases[$alias]}] and config [→ {$target}]; the explicit macro wins.";
                 }
                 continue;
             }
@@ -115,7 +115,7 @@ class AliasResolver
                 throw new AliasTargetException(
                     "Alias [{$alias}] points to route name [{$target}], which does not exist "
                     . 'in the current route table. Update or remove the alias in '
-                    . 'config/forge.php or the ->forgeAlias() declaration.',
+                    . 'config/forge.php or the ->alias() declaration.',
                 );
             }
         }

@@ -266,7 +266,7 @@ class ListCommandTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->forgeAlias('admin.users.index');
+            ->alias('admin.users.index');
 
         $buffer = new BufferedOutput();
         $buffer->setDecorated(true);
@@ -285,7 +285,7 @@ class ListCommandTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->forgeAlias('admin.users.index');
+            ->alias('admin.users.index');
 
         [$exit, $out] = $this->runList(['--json' => true]);
 

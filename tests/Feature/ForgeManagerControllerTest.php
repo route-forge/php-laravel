@@ -109,7 +109,7 @@ class ForgeManagerControllerTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->forgeAlias('admin.users.index');
+            ->alias('admin.users.index');
 
         $data = $this->get('/_forge/manager/api/routes')->json();
 

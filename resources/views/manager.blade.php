@@ -208,7 +208,7 @@
         <div class="cs"><h3>全局设置</h3>
             <div class="cg" id="gf"></div>
         </div>
-        <div class="cs"><h3>路由别名（aliases） <span style="font-weight:400;font-size:12px;color:var(--tx2)">（只读：保存配置时原样保留；在 config/forge.php 或路由宏 -&gt;forgeAlias() 中维护）</span>
+        <div class="cs"><h3>路由别名（aliases） <span style="font-weight:400;font-size:12px;color:var(--tx2)">（只读：保存配置时原样保留；在 config/forge.php 或路由宏 -&gt;alias() 中维护）</span>
             </h3>
             <div id="alias-list"></div>
         </div>
@@ -381,7 +381,7 @@
     const keys = Object.keys(aliases);
     $('#alias-list').innerHTML = keys.length
       ? `<table><thead><tr><th>别名（旧名）</th><th>真实路由名（新名）</th></tr></thead><tbody>${keys.map(a => `<tr><td class="rn" style="cursor:default">${esc(a)}</td><td class="ru">${esc(aliases[a])}</td></tr>`).join('')}</tbody></table>`
-      : '<div class="emp" style="padding:16px">当前无别名声明（config/forge.php 的 aliases 或路由宏 -&gt;forgeAlias()）</div>';
+      : '<div class="emp" style="padding:16px">当前无别名声明（config/forge.php 的 aliases 或路由宏 -&gt;alias()）</div>';
   }
 
   function bindEvts() {

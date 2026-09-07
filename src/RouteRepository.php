@@ -54,7 +54,7 @@ readonly class RouteRepository
      * 包自身端点路由（forge.*）与框架内部路由（如 storage.*）在所有扫描中排除；
      * routes 字段为 stdClass，空层级序列化为 {}（按路由名索引的对象契约）。
      *
-     * 别名（SPEC §3.1.7）：经 ->forgeAlias() 宏或 config aliases 声明的旧名
+     * 别名（SPEC §3.1.7）：经 ->alias() 宏或 config aliases 声明的旧名
      * 作为额外键注入目标路由所在层级的 routes，元信息与目标路由完全一致。
      *
      * @return array{
