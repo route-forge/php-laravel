@@ -261,12 +261,12 @@ class ListCommandTest extends TestCase
         $this->assertSame(1, $decoded['tier_counts']['unassigned']);
     }
 
-    public function test_table_marks_real_routes_green_and_aliases_yellow(): void
+    public function test_table_marks_alias_rows_yellow_and_real_routes_plain(): void
     {
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->alias('admin.users.index');
+            ->forgeAlias('admin.users.index');
 
         $buffer = new BufferedOutput();
         $buffer->setDecorated(true);
@@ -275,9 +275,11 @@ class ListCommandTest extends TestCase
 
         $this->assertSame(0, $exit);
         $this->assertStringContainsString('Name/Alias', $out);
-        // 真实路由名绿色（fg=green → \e[32m），别名行黄色（fg=yellow → \e[33m）
-        $this->assertStringContainsString("\033[32madmin.members.index", $out);
+        // 别名整行黄色（fg=yellow → \e[33m）：名称列与 Alias Of 列都着色
         $this->assertStringContainsString("\033[33madmin.users.index", $out);
+        $this->assertStringContainsString("\033[33madmin.members.index", $out);
+        // 真实路由行默认颜色：行首无转义码（表头默认绿色，不能全局断言无 32m）
+        $this->assertMatchesRegularExpression('/^\| admin\.members\.index /m', $out);
     }
 
     public function test_json_output_stays_plain_text_without_ansi(): void
@@ -285,7 +287,7 @@ class ListCommandTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->alias('admin.users.index');
+            ->forgeAlias('admin.users.index');
 
         [$exit, $out] = $this->runList(['--json' => true]);
 

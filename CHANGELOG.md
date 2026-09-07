@@ -19,10 +19,9 @@
 
 ### Changed
 
-- **路由别名宏 `->forgeAlias()` 更名为 `->alias()`**（breaking，原宏移除）；内部 action 存储键
-  `forge_aliases` 保持不变。请全局替换 `->forgeAlias(` → `->alias(`（SPEC §3.1.7）
-- `route:forge:list` 表格：`Name` 列更名为 `Name/Alias`，真实路由名以绿色、别名行以黄色显示
-  （仅 table 模式；`--json` 输出保持纯文本）；`Alias Of` 列名不变，语义已在 SPEC §3.2 明确
+- `route:forge:list` 表格：`Name` 列更名为 `Name/Alias`，**别名整行以黄色显示**、真实路由行
+  保持默认颜色（仅 table 模式；`--json` 输出保持纯文本）；`Alias Of` 列名不变，语义已在
+  SPEC §3.2 明确
 - 别名定位从「过渡手段」扩展为**双用法**：①改名迁移过渡（用完清理）；②长期稳定对外名
   （易变路由固定对外调用名，改名/跨层级迁移只更新映射目标，前端永不感知）（SPEC §3.1.7）
 
@@ -38,7 +37,7 @@
 - `route:forge:list` / `route:forge:types` 捕获路由解析异常，输出 `[错误码] 消息` 而非裸堆栈；
   list 过滤后 0 行早退时不再吞掉警告输出
 - 严格模式异常消息补充修复指引（`->name` / `->tier` / match 规则 / 关闭 strict_mode）
-- 未命名路由上的 `->alias()` 声明不再静默丢失：别名解析器收集 warning 提示补 `->name(...)`（SPEC §3.1.7）
+- 未命名路由上的 `->forgeAlias()` 声明不再静默丢失：别名解析器收集 warning 提示补 `->name(...)`（SPEC §3.1.7）
 - 生成 d.ts 文件头「端点」注释取实际 `endpoint_prefix`（规范化后），自定义前缀不再失真
 
 ### Docs

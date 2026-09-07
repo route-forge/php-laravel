@@ -250,23 +250,24 @@ class ForgeServiceProvider extends ServiceProvider
         PendingResourceRegistration::macro('tier', $resourceTier);
         PendingSingletonResourceRegistration::macro('tier', $resourceTier);
 
-        // `->alias()` 宏（SPEC §3.1.7）：为当前路由声明一个或多个旧名别名，
+        // `->forgeAlias()` 宏（SPEC §3.1.7）：为当前路由声明一个或多个旧名别名，
         // 使前端在路由改名后继续使用旧名（别名条目由 RouteRepository 注入元信息）。
-        // 与 tier 宏同样零侵入：仅向 action 数组写入 forge_aliases 字段（内部存储键，
-        // 与宏名解耦，改名不影响已注册路由的运行时行为）
+        // 与 tier 宏同样零侵入：仅向 action 数组写入 forge_aliases 字段
         //（写 action 而非 defaults——defaults 会泄漏进 parameter_defaults 元信息）。
         // 声明期只做基本校验；目标存在性/撞车等跨路由校验延迟到 AliasResolver
         // 扫描期（声明时路由表尚未注册完成，无法可靠校验）。
-        Route::macro('alias', function (string ...$aliases): Route {
+        // ⚠ 宏名带 forge 前缀而非泛词 alias：Macroable::macro 是静默覆盖语义，
+        // 泛词存在被内核/其他包双向覆盖的风险，前缀命名让该风险归零。
+        Route::macro('forgeAlias', function (string ...$aliases): Route {
             if (empty($aliases)) {
                 throw new \InvalidArgumentException(
-                    'alias() requires at least one alias name.',
+                    'forgeAlias() requires at least one alias name.',
                 );
             }
             foreach ($aliases as $alias) {
                 if (trim($alias) === '') {
                     throw new \InvalidArgumentException(
-                        'Alias name passed to alias() cannot be empty.',
+                        'Alias name passed to forgeAlias() cannot be empty.',
                     );
                 }
             }

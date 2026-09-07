@@ -202,16 +202,23 @@ class RouteForgeListCommand extends Command
         }
 
         $tableRows = array_map(function (array $r) {
-            // 表格模式颜色区分：真实路由名绿色、别名行黄色（JSON 输出保持纯文本契约不变）
-            $nameCell = $r['alias_of'] !== null
-                ? "<fg=yellow>{$r['name']}</>"
-                : "<fg=green>{$r['name']}</>";
+            // 别名整行黄色标识，真实路由行保持默认颜色（仅 table 模式；JSON 输出保持纯文本契约不变）
+            if ($r['alias_of'] !== null) {
+                $yellow = static fn (string $cell): string => "<fg=yellow>{$cell}</>";
+                return [
+                    $yellow($r['name']),
+                    $yellow($r['level']),
+                    $yellow(implode('|', $r['methods'])),
+                    $yellow($r['uri']),
+                    $yellow((string) $r['alias_of']),
+                ];
+            }
             return [
-                $nameCell,
+                $r['name'],
                 $r['level'],
                 implode('|', $r['methods']),
                 $r['uri'],
-                $r['alias_of'] ?? '—',
+                '—',
             ];
         }, $rows);
 

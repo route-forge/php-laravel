@@ -14,7 +14,7 @@ use Symfony\Component\Console\Output\BufferedOutput;
  * 路由别名测试（对应 .docs/SPEC.md §3.1.7）。
  *
  * 覆盖：
- *   1. 宏 ->alias() 声明的别名出现在目标路由所在层级端点
+ *   1. 宏 ->forgeAlias() 声明的别名出现在目标路由所在层级端点
  *   2. config aliases 声明的别名同样生效
  *   3. 优先级：宏（显式）> config
  *   4. 别名与真实路由名撞车 → 真实路由优先，别名被忽略
@@ -51,7 +51,7 @@ class RouteAliasTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->alias('admin.users.index');
+            ->forgeAlias('admin.users.index');
 
         $routes = $this->get($this->endpoint('admin'))->json('routes');
 
@@ -83,7 +83,7 @@ class RouteAliasTest extends TestCase
         RouteFacade::get('/admin/macro', static function () {})
             ->name('macro.target')
             ->tier('admin')
-            ->alias('old.name');
+            ->forgeAlias('old.name');
         RouteFacade::get('/admin/config', static function () {})
             ->name('config.target')
             ->tier('admin');
@@ -133,7 +133,7 @@ class RouteAliasTest extends TestCase
             ->name('admin.members.show')
             ->tier('admin')
             ->defaults('member', 'default-member')
-            ->alias('admin.members.detail');
+            ->forgeAlias('admin.members.detail');
 
         $routes = $this->get($this->endpoint('admin'))->json('routes');
 
@@ -150,7 +150,7 @@ class RouteAliasTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->alias('legacy.a', 'legacy.b');
+            ->forgeAlias('legacy.a', 'legacy.b');
 
         $routes = $this->get($this->endpoint('admin'))->json('routes');
 
@@ -196,7 +196,7 @@ class RouteAliasTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->alias('admin.users.index');
+            ->forgeAlias('admin.users.index');
 
         $first = $this->get($this->endpoint('admin'))->json('routes');
         $this->assertArrayHasKey('admin.users.index', $first);
@@ -212,7 +212,7 @@ class RouteAliasTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->alias('admin.users.index');
+            ->forgeAlias('admin.users.index');
 
         $buffer = new BufferedOutput();
         $exit = $this->app->make(Kernel::class)->call('route:forge:types', ['--json' => true], $buffer);
@@ -230,7 +230,7 @@ class RouteAliasTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->alias('admin.users.index');
+            ->forgeAlias('admin.users.index');
 
         $buffer = new BufferedOutput();
         $exit = $this->app->make(Kernel::class)->call('route:forge:list', ['--json' => true], $buffer);
@@ -280,16 +280,16 @@ class RouteAliasTest extends TestCase
         RouteFacade::get('/admin/members', static function () {})
             ->name('admin.members.index')
             ->tier('admin')
-            ->alias();
+            ->forgeAlias();
     }
 
     public function test_alias_on_unnamed_route_yields_warning_instead_of_silent_loss(): void
     {
-        // 无名路由上的 alias() 声明无法挂载元信息（B7）：
+        // 无名路由上的 forgeAlias() 声明无法挂载元信息（B7）：
         // 不注入别名条目，但应产生 warning 而非静默消失
         RouteFacade::get('/admin/anonymous', static function () {})
             ->tier('admin')
-            ->alias('admin.users.index');
+            ->forgeAlias('admin.users.index');
 
         $routes = $this->get($this->endpoint('admin'))->json('routes');
         $this->assertArrayNotHasKey('admin.users.index', $routes);
@@ -299,7 +299,7 @@ class RouteAliasTest extends TestCase
         $raw = $buffer->fetch();
 
         // table 模式：即使过滤后 0 行（早退），警告也必须可见
-        $this->assertStringContainsString('declared via ->alias() on an unnamed route', $raw);
+        $this->assertStringContainsString('declared via ->forgeAlias() on an unnamed route', $raw);
         $this->assertStringContainsString('Add ->name(...) to the route', $raw);
     }
 }

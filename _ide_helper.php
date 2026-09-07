@@ -4,7 +4,7 @@
  * IDE Helper for Route Forge Laravel.
  *
  * 本文件为静态分析工具（PHPStorm / Intelephense / Larastan）提供
- * `->tier()` / `->alias()` 宏与 `Route::group(['tier' => ...])` 的类型提示。
+ * `->tier()` / `->forgeAlias()` 宏与 `Route::group(['tier' => ...])` 的类型提示。
  * 运行时不会加载此文件。
  *
  * @see \RouteForge\Laravel\ForgeServiceProvider::registerTierMacro()
@@ -50,7 +50,7 @@ namespace Illuminate\Routing {
          * Route::get('/admin/members', [MemberController::class, 'index'])
          *     ->name('admin.members.index')
          *     ->tier('admin')
-         *     ->alias('admin.users.index', 'admin.users.list');
+         *     ->forgeAlias('admin.users.index', 'admin.users.list');
          * ```
          *
          * 注意：资源路由（Route::resource 等）不支持本宏——资源路由一次生成多条
@@ -59,7 +59,7 @@ namespace Illuminate\Routing {
          * @param string ...$aliases 旧路由名列表（别名，前端继续使用的名字）
          * @return $this
          */
-        public function alias(string ...$aliases): static
+        public function forgeAlias(string ...$aliases): static
         {
             return $this;
         }
