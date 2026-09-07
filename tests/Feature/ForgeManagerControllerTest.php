@@ -58,6 +58,31 @@ class ForgeManagerControllerTest extends TestCase
             ->assertSee('Route Forge 管理器', false);
     }
 
+    public function test_config_api_exposes_aliases_for_audit(): void
+    {
+        // aliases 不在表单中编辑，config API 只读下发便于审计（C10）
+        config()->set('forge.aliases', ['admin.users.index' => 'admin.members.index']);
+
+        $response = $this->get('/_forge/manager/api/config');
+        $response->assertStatus(200);
+
+        $this->assertSame(
+            ['admin.users.index' => 'admin.members.index'],
+            $response->json('global.aliases'),
+        );
+    }
+
+    public function test_manager_page_includes_readonly_alias_section(): void
+    {
+        config()->set('forge.aliases', ['admin.users.index' => 'admin.members.index']);
+
+        $this->get('/_forge/manager')
+            ->assertStatus(200)
+            ->assertSee('路由别名（aliases）', false)
+            ->assertSee('admin.users.index', false)
+            ->assertSee('admin.members.index', false);
+    }
+
     public function test_routes_api_returns_grouped_data_and_excludes_forge_routes(): void
     {
         $response = $this->get('/_forge/manager/api/routes');

@@ -49,6 +49,8 @@ class ForgeManagerController extends Controller
                 'strict_mode'     => (bool)config('forge.strict_mode', false),
                 'scheme_version'  => (int)config('forge.scheme_version', 1),
                 'manager_allowed_ips' => (array)config('forge.manager_allowed_ips', ['127.0.0.1', '::1']),
+                // 只读展示：别名不在表单中编辑（保存时原样透传），面板可见便于审计
+                'aliases'         => (array)config('forge.aliases', []),
             ],
         ]);
     }
@@ -81,6 +83,8 @@ class ForgeManagerController extends Controller
                 'strict_mode'     => (bool)config('forge.strict_mode', false),
                 'scheme_version'  => (int)config('forge.scheme_version', 1),
                 'manager_allowed_ips' => (array)config('forge.manager_allowed_ips', ['127.0.0.1', '::1']),
+                // 只读展示：别名不在表单中编辑（保存时原样透传），API 下发便于审计
+                'aliases'         => (array)config('forge.aliases', []),
             ],
         ]);
     }
