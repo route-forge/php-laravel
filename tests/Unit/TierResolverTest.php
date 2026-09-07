@@ -283,6 +283,30 @@ class TierResolverTest extends TestCase
         $resolver->resolve($route);
     }
 
+    public function test_strict_mode_missing_name_message_includes_fix_guidance(): void
+    {
+        // 异常消息应包含修复指引（B6）
+        $resolver = new TierResolver([], null, strictMode: true);
+
+        $route = $this->makeUnnamedRoute('/admin/users', [], ['tier' => 'admin']);
+
+        $this->expectException(RouteMissingNameException::class);
+        $this->expectExceptionMessage('Add ->name(...) to the route or remove the tier.');
+        $resolver->resolve($route);
+    }
+
+    public function test_strict_mode_unassigned_message_includes_fix_guidance(): void
+    {
+        // 异常消息应包含修复指引（B6）
+        $resolver = new TierResolver([], null, strictMode: true);
+
+        $route = $this->makeUnnamedRoute('/some/uri', [], []);
+
+        $this->expectException(\RouteForge\Laravel\Exceptions\RouteTierNotAssignedException::class);
+        $this->expectExceptionMessage('Add ->tier(...) to the route or a match rule in config/forge.php');
+        $resolver->resolve($route);
+    }
+
     // ---------------------------------------------------------------------
     // classifier 返回未知层级名验证
     // ---------------------------------------------------------------------

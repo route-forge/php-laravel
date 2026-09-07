@@ -52,7 +52,8 @@ readonly class TierResolver
             if ($this->strictMode) {
                 throw new RouteMissingNameException(
                     'Route (' . $route->uri() . ') has tier [' . $explicit . '] but no route name assigned. '
-                    . 'Route Forge requires a route name when tier is set.'
+                    . 'Route Forge requires a route name when tier is set. '
+                    . 'Add ->name(...) to the route or remove the tier.'
                 );
             }
             // 非严格模式：有 tier 无 name 的路由无法被纳入元信息。
@@ -119,7 +120,8 @@ readonly class TierResolver
         // 5：未命中——strict_mode=true 抛异常；否则归入 unassigned 特殊层级（返回 null）
         if ($this->strictMode) {
             throw new RouteTierNotAssignedException(
-                'Route ' . $route->getName() . ' (' . $route->uri() . ') has no tier assigned'
+                'Route ' . $route->getName() . ' (' . $route->uri() . ') has no tier assigned. '
+                . 'Add ->tier(...) to the route or a match rule in config/forge.php, or disable strict_mode.'
             );
         }
 
