@@ -296,9 +296,10 @@ class RouteAliasTest extends TestCase
 
         $buffer = new BufferedOutput();
         $this->app->make(Kernel::class)->call('route:forge:list', ['--aliases' => true], $buffer);
-        $out = json_decode($buffer->fetch(), true, flags: JSON_THROW_ON_ERROR);
+        $raw = $buffer->fetch();
 
-        $found = array_filter($out['warnings'], fn (string $w) => str_contains($w, 'declared via ->forgeAlias() on an unnamed route'));
-        $this->assertNotEmpty($found, 'list --json warnings 应包含未命名路由别名警告');
+        // table 模式：即使过滤后 0 行（早退），警告也必须可见
+        $this->assertStringContainsString('declared via ->forgeAlias() on an unnamed route', $raw);
+        $this->assertStringContainsString('Add ->name(...) to the route', $raw);
     }
 }

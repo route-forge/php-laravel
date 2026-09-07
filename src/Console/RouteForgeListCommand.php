@@ -187,6 +187,15 @@ class RouteForgeListCommand extends Command
                 . 'Check match rules in config/forge.php or add explicit ->tier(...) markers.');
         }
 
+        // 警告在任何过滤结果下都输出：配置问题（别名撞车 / tier 无 name）与
+        // 当次过滤无关，0 行早退时也必须可见
+        foreach ($aliasWarnings as $warning) {
+            $this->warn($warning);
+        }
+        foreach ($tierNoNameWarnings as $warning) {
+            $this->warn($warning);
+        }
+
         if (empty($rows)) {
             $this->info('No routes found matching the filter.');
             return 0;
@@ -203,13 +212,6 @@ class RouteForgeListCommand extends Command
         }, $rows);
 
         $this->table(['Name', 'Level', 'Methods', 'URI', 'Alias Of'], $tableRows);
-
-        foreach ($aliasWarnings as $warning) {
-            $this->warn($warning);
-        }
-        foreach ($tierNoNameWarnings as $warning) {
-            $this->warn($warning);
-        }
         return 0;
     }
 }
