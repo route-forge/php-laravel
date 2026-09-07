@@ -544,10 +544,11 @@ php artisan route:forge:list --aliases
 | client.orders.store | client     | POST      | client/orders      | —                   |
 | debug.info          | unassigned | GET\|HEAD | _debug/info        | —                   |
 
-> 表格说明：`Name/Alias` 列中，**别名整行以黄色显示**、真实路由行保持默认颜色（仅 table 模式；
-> `--json` 输出保持纯文本，不混入 ANSI 颜色码）。**被忽略的撞车声明以红色行显示在表格末尾**
-> （该行不代表可用路由名，不进入 JSON routes）。别名行与真实路由行的 URI 相同——
-> 别名在元信息中就是一个真实存在的路由名（§3.1.7 契约），`Alias Of` 只是给人看的辅助标记。
+> 表格说明：`Name/Alias` 列中，**别名整行以黄色显示**；真实路由行保持默认颜色，但**被别名
+> 依赖的真实路由名以绿色显示**（改名时需同步更新别名映射的审计信号）；**被忽略的撞车声明
+> 以红色行显示在表格末尾**（该行不代表可用路由名，不进入 JSON routes）。颜色仅 table 模式
+> 存在，`--json` 输出保持纯文本。别名行与真实路由行的 URI 相同——别名在元信息中就是
+> 一个真实存在的路由名（§3.1.7 契约），`Alias Of` 只是给人看的辅助标记。
 
 行为说明：
 

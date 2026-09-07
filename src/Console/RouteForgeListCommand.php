@@ -205,7 +205,10 @@ class RouteForgeListCommand extends Command
             return 0;
         }
 
-        $tableRows = array_map(function (array $r) {
+        // 被别名依赖的真实路由名（Name 列绿色标识：改名时需同步更新别名映射）
+        $aliasedTargets = array_values(array_unique(array_values($aliasResolution['aliases'])));
+
+        $tableRows = array_map(function (array $r) use ($aliasedTargets) {
             // 别名整行黄色标识，真实路由行保持默认颜色（仅 table 模式；JSON 输出保持纯文本契约不变）
             if ($r['alias_of'] !== null) {
                 $yellow = static fn (string $cell): string => "<fg=yellow>{$cell}</>";
@@ -217,8 +220,10 @@ class RouteForgeListCommand extends Command
                     $yellow((string) $r['alias_of']),
                 ];
             }
+            // 真实路由名被别名指向 → Name 列绿色（长期稳定对外名的审计信号）
+            $hasAlias = in_array($r['name'], $aliasedTargets, true);
             return [
-                $r['name'],
+                $hasAlias ? "<fg=green>{$r['name']}</>" : $r['name'],
                 $r['level'],
                 implode('|', $r['methods']),
                 $r['uri'],

@@ -279,8 +279,10 @@ class ListCommandTest extends TestCase
         // 别名整行黄色（fg=yellow → \e[33m）：名称列与 Alias Of 列都着色
         $this->assertStringContainsString("\033[33madmin.members.old", $out);
         $this->assertStringContainsString("\033[33madmin.members.index", $out);
-        // 真实路由行默认颜色：行首无转义码（表头默认绿色，不能全局断言无 32m）
-        $this->assertMatchesRegularExpression('/^\| admin\.members\.index /m', $out);
+        // 被别名依赖的真实路由名绿色（fg=green → \e[32m）
+        $this->assertStringContainsString("\033[32madmin.members.index", $out);
+        // 无别名依赖的真实路由行保持默认颜色：行首无转义码（表头默认绿色，不能全局断言无 32m）
+        $this->assertMatchesRegularExpression('/^\| admin\.users\.index /m', $out);
     }
 
     public function test_json_output_stays_plain_text_without_ansi(): void
