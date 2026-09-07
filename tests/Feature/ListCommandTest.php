@@ -260,4 +260,36 @@ class ListCommandTest extends TestCase
         $this->assertSame(1, $decoded['tier_counts']['admin']);
         $this->assertSame(1, $decoded['tier_counts']['unassigned']);
     }
+
+    public function test_table_marks_real_routes_green_and_aliases_yellow(): void
+    {
+        RouteFacade::get('/admin/members', static function () {})
+            ->name('admin.members.index')
+            ->tier('admin')
+            ->forgeAlias('admin.users.index');
+
+        $buffer = new BufferedOutput();
+        $buffer->setDecorated(true);
+        $exit = $this->app->make(Kernel::class)->call('route:forge:list', [], $buffer);
+        $out = $buffer->fetch();
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('Name/Alias', $out);
+        // 真实路由名绿色（fg=green → \e[32m），别名行黄色（fg=yellow → \e[33m）
+        $this->assertStringContainsString("\033[32madmin.members.index", $out);
+        $this->assertStringContainsString("\033[33madmin.users.index", $out);
+    }
+
+    public function test_json_output_stays_plain_text_without_ansi(): void
+    {
+        RouteFacade::get('/admin/members', static function () {})
+            ->name('admin.members.index')
+            ->tier('admin')
+            ->forgeAlias('admin.users.index');
+
+        [$exit, $out] = $this->runList(['--json' => true]);
+
+        $this->assertSame(0, $exit);
+        $this->assertStringNotContainsString("\033[", $out, 'JSON 输出不得混入 ANSI 颜色码');
+    }
 }

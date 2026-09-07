@@ -514,13 +514,17 @@ php artisan route:forge:list --aliases
 
 输出示例：
 
-| Name                | Level      | Methods   | URI                | Alias Of            |
+| Name/Alias          | Level      | Methods   | URI                | Alias Of            |
 |---------------------|------------|-----------|--------------------|---------------------|
 | auth.login          | public     | POST      | auth/login         | —                   |
 | admin.users.index   | admin      | GET\|HEAD | admin/members      | admin.members.index |
 | admin.members.index | admin      | GET\|HEAD | admin/members      | —                   |
 | client.orders.store | client     | POST      | client/orders      | —                   |
 | debug.info          | unassigned | GET\|HEAD | _debug/info        | —                   |
+
+> 表格说明：`Name/Alias` 列中，**真实路由名以绿色显示、别名行以黄色显示**（仅 table 模式；
+> `--json` 输出保持纯文本，不混入 ANSI 颜色码）。别名行与真实路由行的 URI 相同——
+> 别名在元信息中就是一个真实存在的路由名（§3.1.7 契约），`Alias Of` 只是给人看的辅助标记。
 
 行为说明：
 
@@ -580,6 +584,11 @@ php artisan route:forge:list --aliases
 - `tier_counts`：各层级路由计数（过滤前统计；含 0 路由层级与 `unassigned`；别名计入目标层级，与摘要 `route_count` 一致）。
 - `warnings`：非致命问题（别名撞车被忽略、「有 tier 无 name」等），供 CI/脚本检测配置问题；无问题时为空数组。
 - `routes`：路由条目数组，每条含 `name`、`level`（未分配为 `"unassigned"`）、`methods`、`uri`、`alias_of`（真实路由名为 `null`，别名为指向的目标路由名，见 §3.1.7）。
+
+> **`alias_of` 语义（从别名视角命名）**：本行 `name` 是一个别名时，`alias_of` 即它所**指向的真实路由名**。
+> 换言之：Name/Alias 列回答「这一行叫什么」，Alias Of 列回答「若它是别名，真身是谁」。
+> 该字段仅存在于 list `--json` 与管理器数据中，**端点元信息（routes 对象）没有此字段**——
+> 别名与真实路由在元信息层不可区分，是「前端零改动」契约的前提。
 
 > 设计意图：开发阶段最常被问到的问题是"我的路由到底被分到了哪个层级"。这个命令让开发者无需启动前端、无需打开浏览器，一条命令即可验证配置效果。
 

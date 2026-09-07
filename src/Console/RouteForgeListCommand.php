@@ -202,8 +202,12 @@ class RouteForgeListCommand extends Command
         }
 
         $tableRows = array_map(function (array $r) {
+            // 表格模式颜色区分：真实路由名绿色、别名行黄色（JSON 输出保持纯文本契约不变）
+            $nameCell = $r['alias_of'] !== null
+                ? "<fg=yellow>{$r['name']}</>"
+                : "<fg=green>{$r['name']}</>";
             return [
-                $r['name'],
+                $nameCell,
                 $r['level'],
                 implode('|', $r['methods']),
                 $r['uri'],
@@ -211,7 +215,7 @@ class RouteForgeListCommand extends Command
             ];
         }, $rows);
 
-        $this->table(['Name', 'Level', 'Methods', 'URI', 'Alias Of'], $tableRows);
+        $this->table(['Name/Alias', 'Level', 'Methods', 'URI', 'Alias Of'], $tableRows);
         return 0;
     }
 }
