@@ -412,9 +412,28 @@ GET /_forge/routes   # 返回所有层级摘要 + 全局配置
 
 摘要端点同样受 `cache_driver` 与 `cache_ttl` 控制缓存。
 
-#### 3.1.7 路由别名（`forgeAlias` / `aliases`）
+#### 3.1.7 路由别名（`alias` / `aliases`）
 
 路由改名迭代（如 `admin.users.index` → `admin.members.index`）时，别名机制让前端调用方**无需修改路由名**即可继续工作：别名作为额外键注入目标路由所在层级的元信息，与真实路由名并存，指向完全一致的元信息。
+
+**两种用法定位（均可长期使用）：**
+
+1. **改名迁移过渡**：改名后声明旧名，前端零改动；改名稳定后清理别名，恢复单名。
+2. **长期稳定对外名**：给易变路由固定一个对外调用名（键），真实路由名仅作内部实现。
+   此后路由改名、甚至跨层级迁移，**只需更新别名映射的目标值**，前端永不感知。
+   推荐约定：前端代码统一只调用别名，真实路由名不出现在前端代码中。
+
+```php
+// 长期稳定对外名示例：前端永远调用 client.orders.list
+// aliases: ['client.orders.list' => 'client.orders.index']
+
+// 需求迭代把路由改名为 v2、并迁移到 manage 层级——前端零改动：
+Route::put('/manage/orders/v2/{id}', [OrderController::class, 'updateV2'])
+    ->name('manage.orders.update')
+    ->tier('manage');
+// 仅更新一行映射即可：
+// aliases: ['client.orders.list' => 'manage.orders.update']
+```
 
 **声明通道（二选一或并用）：**
 
@@ -423,11 +442,11 @@ GET /_forge/routes   # 返回所有层级摘要 + 全局配置
 Route::get('/admin/members', [MemberController::class, 'index'])
     ->name('admin.members.index')
     ->tier('admin')
-    ->forgeAlias('admin.users.index');          // 可一次声明多个旧名
+    ->alias('admin.users.index');          // 可一次声明多个旧名
 ```
 
 ```php
-// 通道二：config/forge.php 集中声明（适合批量迁移与集中管理）
+// 通道二：config/forge.php 集中声明（批量迁移与长期稳定对外名都建议集中在此维护）
 'aliases' => [
     'admin.users.index' => 'admin.members.index',   // 键=别名(旧名)，值=真实路由名(新名)
 ],
@@ -437,8 +456,8 @@ Route::get('/admin/members', [MemberController::class, 'index'])
 
 - 同一别名同时经宏与 config 声明时，**宏（显式）优先**；config 中目标不同则记录警告。
 - 别名与真实路由名撞车时，**真实路由优先**，别名被忽略（`route:forge:list` 的 warnings 中提示）。
-- 别名指向的路由名不存在（悬空，常见于路由删除后忘记清理别名）→ 抛 `AliasTargetException`（RF_BE_008），fail-fast。
-- **未命名路由上的 `->forgeAlias()` 声明被忽略并记录警告**（别名跟随目标路由的命名元信息注入，无名路由无元信息可挂载）：不注入别名条目，但 `route:forge:list` 的 warnings 中提示补 `->name(...)`，避免声明者误以为别名已生效。
+- 别名指向的路由名不存在（悬空，常见于路由删除后忘记同步映射）→ 抛 `AliasTargetException`（RF_BE_008），fail-fast。
+- **未命名路由上的 `->alias()` 声明被忽略并记录警告**（别名跟随目标路由的命名元信息注入，无名路由无元信息可挂载）：不注入别名条目，但 `route:forge:list` 的 warnings 中提示补 `->name(...)`，避免声明者误以为别名已生效。
 
 **行为细节：**
 
@@ -448,9 +467,9 @@ Route::get('/admin/members', [MemberController::class, 'index'])
 - `route:forge:list` 显示别名条目（`alias_of` 字段 / `Alias Of` 列，见 §3.2），支持 `--aliases` 过滤。
 - 管理器页面（§3.3）为别名条目打「别名」标并显示指向。
 - 别名是**元信息层概念**：不参与层级解析（§3.1.4）、不受 `strict_mode` 影响、旧 URI 本身不可访问；解析结果随扫描进入缓存（§3.1.5 缓存策略）。
-- 资源路由不支持别名（`Route::resource(...)->forgeAlias()` 无定义——资源路由一次生成多条命名路由，别名指向存在歧义；如需别名请在展开后的具体路由上声明）。
+- 资源路由不支持别名（`Route::resource(...)->alias()` 无定义——资源路由一次生成多条命名路由，别名指向存在歧义；如需别名请在展开后的具体路由上声明）。
 
-> 别名是**过渡手段**：改名稳定后应及时清理（`route:forge:list --aliases` 查看、grep `forgeAlias`），避免路由表长期新旧两套名字并存。`schemeVersion` 不因别名递增——routes 多出条目对既有前端无破坏，属向后兼容增量。
+> **清理时机只针对用法一**：迁移过渡型别名应在改名稳定后清理（`route:forge:list --aliases` 查看、grep `alias(`）；用法二的长期稳定对外名不需要也不会过期——它是路由名与对外契约之间的解耦层。`schemeVersion` 不因别名递增——routes 多出条目对既有前端无破坏，属向后兼容增量。
 
 #### 3.1.8 首页内嵌摘要（Blade 指令 `@forgeSummary`）
 
@@ -803,7 +822,7 @@ PUT /_forge/manager/api/config   # 更新配置文件
   - 已配置 `classifier` 回调时拒绝保存并返回 422（闭包无法序列化回配置文件，避免静默抹掉回调）；
   - 不在表单中编辑的配置项（`endpoint_middleware`、`manager_allowed_ips`、**`aliases`**）保存时原样透传，不会丢失；
   - `aliases` 映射在配置页以**只读区块**展示（别名 → 真实路由名），便于审计；编辑走 `config/forge.php`
-    或路由宏 `->forgeAlias()`；
+    或路由宏 `->alias()`；
   - ⚠ 保存会把整个 `config/forge.php` 重写为静态值：通过 `env('FORGE_*')` 提供的动态覆盖（如
     `FORGE_CACHE_TTL`）会被展开为字面量，保存后不再响应环境变量变更；如需保留 env 覆盖能力，请手工编辑配置文件。
 - 表格区域限高（`max-height: calc(100vh - 240px)`），路由多时表格内部滚动，表头 sticky 吸顶。
@@ -831,7 +850,7 @@ PUT /_forge/manager/api/config   # 更新配置文件
 | `strict_mode`                          | `bool`                       | `false`            | 严格模式；未命中层级时抛异常（true）或归入 `unassigned` 特殊层级（false）                                                                                                                         |
 | `scheme_version`                       | `int`                        | `1`                | 摘要端点返回的响应格式版本号（`schemeVersion` 字段）；后续迭代引入不兼容的格式变更时递增，前端据此做版本兼容                                                                                      |
 | `classifier`                           | `callable\|null`             | `null`             | 自定义分类回调，签名 `fn(Route $r): ?string`，返回层级名或 null。返回的层级名必须在 `levels` 配置中存在，否则抛 `UnknownClassifierTierException`                                                  |
-| `aliases`                              | `array<string, string>`      | `[]`               | 路由别名映射表（见 §3.1.7）：键=别名（旧路由名），值=真实路由名（新名）。与 `->forgeAlias()` 宏并用时宏优先；悬空别名抛 `AliasTargetException`                                                     |
+| `aliases`                              | `array<string, string>`      | `[]`               | 路由别名映射表（见 §3.1.7）：键=别名（旧路由名），值=真实路由名（新名）。与 `->alias()` 宏并用时宏优先；悬空别名抛 `AliasTargetException`                                                     |
 | `manager_allowed_ips`                  | `string[]\|null`             | `['127.0.0.1', '::1']` | 管理器页面 IP 白名单（仅 `APP_DEBUG=true` 有意义，线上不注册管理器路由可无视）：精确匹配来源 IP，`'*'` 放行任意来源，`null`/空数组不做限制                                                          |
 
 ## 6. 错误码
@@ -854,7 +873,7 @@ PUT /_forge/manager/api/config   # 更新配置文件
 | 测试维度     | 覆盖点                                                                                                                                 |
 |--------------|----------------------------------------------------------------------------------------------------------------------------------------|
 | 层级分配     | 显式 `->tier()`、资源路由（resource/apiResource/singleton/apiSingleton）tier 与 `->only()` 组合、配置 match、`Route::group`（数组/链式）透传、classifier（含返回非串降级、抛错包装为 ClassifierException）、unassigned 兜底、优先级覆盖、**多层级同时命中取最后一个** |
-| 路由别名     | `->forgeAlias()` 宏（单个/多个/空参报错）、config `aliases`、**宏优先于 config**、别名与真实路由名撞车忽略（list warnings）、悬空别名 RF_BE_008、别名元信息与目标纯复制一致、跟随目标层级（含 unassigned）、摘要 `route_count` 计入别名、`route:forge:types` 别名条目、`route:forge:list --aliases` 过滤、别名随扫描缓存 |
+| 路由别名     | `->alias()` 宏（单个/多个/空参报错）、config `aliases`、**宏优先于 config**、别名与真实路由名撞车忽略（list warnings）、悬空别名 RF_BE_008、别名元信息与目标纯复制一致、跟随目标层级（含 unassigned）、摘要 `route_count` 计入别名、`route:forge:types` 别名条目、`route:forge:list --aliases` 过滤、别名随扫描缓存 |
 | Artisan 命令 | `route:forge:list` 输出格式（table/json）、按层级过滤、unassigned 路由显示、`--level` 参数过滤                                         |
 | Artisan 命令 | `route:forge:types` 生成 d.ts 二级结构（层级 → 路由名）、`--level` 过滤、`--json` 二级 JSON 输出、`--out` 写文件                       |
 | Artisan 命令 | `route:forge:clear` 全量清除缓存、按层级清除、无效层级名报错                                                                           |
