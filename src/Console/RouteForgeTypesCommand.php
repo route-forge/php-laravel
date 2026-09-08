@@ -7,12 +7,9 @@ namespace RouteForge\Laravel\Console;
 use Illuminate\Console\Command;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\File;
-use RouteForge\Common\Alias\AliasResolver;
 use RouteForge\Common\Analyzer\RouteAnalyzer;
 use RouteForge\Common\Contract\ForgeExceptionContract;
-use RouteForge\Common\Filter\RouteNameFilter;
 use RouteForge\Common\Repository\RouteRepository;
-use RouteForge\Common\Tier\TierResolver;
 use RouteForge\Common\Type\TypeGenerator;
 use RouteForge\Laravel\Adapter\LaravelRouteNormalizer;
 
@@ -30,7 +27,7 @@ class RouteForgeTypesCommand extends Command
 
     protected $description = '生成 TS 路由类型声明（route:forge:types --level=admin --json --out=src/types/forge-routes.d.ts）';
 
-    public function handle(Router $router, TierResolver $resolver): int
+    public function handle(Router $router, RouteAnalyzer $analyzer, LaravelRouteNormalizer $normalizer): int
     {
         $levels = array_keys(config('forge.levels', []));
         $filterLevel = $this->option('level');
@@ -45,17 +42,10 @@ class RouteForgeTypesCommand extends Command
             return 1;
         }
 
-        // 数据收集（框架无关业务在 common RouteAnalyzer 中完成；本命令只负责 I/O 与渲染）
-        $filter = RouteNameFilter::withExtraPrefixes(['storage.']);
-        $normalizer = new LaravelRouteNormalizer();
-        $infos = [];
-        foreach ($router->getRoutes() as $route) {
-            $infos[] = $normalizer->normalize($route);
-        }
-
-        $analyzer = new RouteAnalyzer($resolver, new AliasResolver((array) config('forge.aliases', []), $filter), $filter);
+        // 分析器（filter / alias / resolver 接线）由 Provider 单例提供，
+        // storage.* 等框架内部路由排除规则单点维护，命令层不做重复组装
         try {
-            $analysis = $analyzer->analyze($infos);
+            $analysis = $analyzer->analyzeRoutes($router->getRoutes(), $normalizer);
         } catch (ForgeExceptionContract $e) {
             $this->error("[{$e->code()}] {$e->getMessage()}");
 

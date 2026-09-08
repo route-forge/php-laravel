@@ -6,12 +6,8 @@ namespace RouteForge\Laravel\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Routing\Router;
-use RouteForge\Common\Alias\AliasResolver;
 use RouteForge\Common\Analyzer\RouteAnalyzer;
 use RouteForge\Common\Contract\ForgeExceptionContract;
-use RouteForge\Common\Filter\RouteNameFilter;
-use RouteForge\Common\Repository\RouteRepository;
-use RouteForge\Common\Tier\TierResolver;
 use RouteForge\Laravel\Adapter\LaravelRouteNormalizer;
 
 /**
@@ -28,7 +24,7 @@ class RouteForgeListCommand extends Command
 
     protected $description = '列出所有命名路由的层级分配（route:forge:list --level=admin --json --unassigned）';
 
-    public function handle(Router $router, TierResolver $resolver): int
+    public function handle(Router $router, RouteAnalyzer $analyzer, LaravelRouteNormalizer $normalizer): int
     {
         $levels = array_keys(config('forge.levels', []));
 
@@ -46,17 +42,10 @@ class RouteForgeListCommand extends Command
             return 1;
         }
 
-        // 数据收集（框架无关业务在 common RouteAnalyzer 中完成；本命令只负责 I/O 与渲染）
-        $filter = RouteNameFilter::withExtraPrefixes(['storage.']);
-        $normalizer = new LaravelRouteNormalizer();
-        $infos = [];
-        foreach ($router->getRoutes() as $route) {
-            $infos[] = $normalizer->normalize($route);
-        }
-
-        $analyzer = new RouteAnalyzer($resolver, new AliasResolver((array) config('forge.aliases', []), $filter), $filter);
+        // 分析器（filter / alias / resolver 接线）由 Provider 单例提供，
+        // storage.* 等框架内部路由排除规则单点维护，命令层不做重复组装
         try {
-            $analysis = $analyzer->analyze($infos);
+            $analysis = $analyzer->analyzeRoutes($router->getRoutes(), $normalizer);
         } catch (ForgeExceptionContract $e) {
             // 悬空别名 / resolve 抛出的 Forge 系异常（RF_BE_001/002/004/005/006）：
             // 输出 [错误码] 消息而非裸堆栈

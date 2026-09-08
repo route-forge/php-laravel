@@ -19,6 +19,8 @@ use Illuminate\Routing\Router as BaseRouter;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Illuminate\Support\ServiceProvider;
+use RouteForge\Common\Alias\AliasResolver;
+use RouteForge\Common\Analyzer\RouteAnalyzer;
 use RouteForge\Common\Cache\RouteCache as CommonRouteCache;
 use RouteForge\Common\Dto\RouteInfo;
 use RouteForge\Common\Exception\UnknownLevelException;
@@ -211,6 +213,23 @@ class ForgeServiceProvider extends ServiceProvider
                 logger: $app->bound(\Psr\Log\LoggerInterface::class)
                     ? $app->make(\Psr\Log\LoggerInterface::class)
                     : null,
+            );
+        });
+
+        // RouteAnalyzer：命令层（list / types）共用的分析器，已按 forge 配置接线。
+        // Laravel 特有的框架内部路由前缀（storage.*）在此单点声明——
+        // 命令层禁止自行构造 filter / AliasResolver，避免排除规则多处漂移。
+        $this->app->singleton(RouteAnalyzer::class, function ($app) {
+            /** @var Container $app */
+            $filter = RouteNameFilter::withExtraPrefixes(['storage.']);
+
+            return new RouteAnalyzer(
+                tierResolver: $app->make(CommonTierResolver::class),
+                aliasResolver: new AliasResolver(
+                    (array) $app->make('config')->get('forge.aliases', []),
+                    $filter,
+                ),
+                filter: $filter,
             );
         });
 
