@@ -4,47 +4,66 @@ declare(strict_types=1);
 
 namespace RouteForge\Laravel\Tests\Unit;
 
-use Illuminate\Routing\Route;
 use PHPUnit\Framework\TestCase;
-use RouteForge\Laravel\Exceptions\ClassifierException;
-use RouteForge\Laravel\Exceptions\RouteMissingNameException;
-use RouteForge\Laravel\Exceptions\UnknownClassifierTierException;
-use RouteForge\Laravel\Exceptions\UnknownLevelException;
-use RouteForge\Laravel\TierResolver;
+use RouteForge\Common\Dto\RouteInfo;
+use RouteForge\Common\Exception\ClassifierException;
+use RouteForge\Common\Exception\RouteMissingNameException;
+use RouteForge\Common\Exception\RouteTierNotAssignedException;
+use RouteForge\Common\Exception\UnknownClassifierTierException;
+use RouteForge\Common\Exception\UnknownLevelException;
+use RouteForge\Common\Tier\TierResolver;
 use RuntimeException;
 
 /**
  * TierResolver 单元测试（对应 .docs/SPEC.md §3.1.2 中间件匹配模式与多层级 last-wins）。
  *
- * 直接 mock Illuminate\Routing\Route，不走 Laravel 容器，聚焦匹配逻辑。
+ * 直接构造统一 RouteInfo DTO（common 层框架无关契约），不走 Laravel 容器，聚焦匹配逻辑。
  */
 class TierResolverTest extends TestCase
 {
     /**
-     * 构造一个配置好 uri / gatherMiddleware / getAction / getName 的 Route 桩。
-     * 使用 createStub（非验证型），避免 PHPUnit 13「mock 无 expectations」提示。
+     * 构造一个配置好 uri / middleware / tier / name 的 RouteInfo。
+     * action 数组兼容原 Laravel action 形态（tier / forge_aliases 由本构造提取）。
+     *
+     * @param array<string, mixed> $action
      */
-    private function makeRoute(string $uri, array $middlewares, array $action = []): Route
+    private function makeRoute(string $uri, array $middlewares, array $action = []): RouteInfo
     {
-        $route = $this->createStub(Route::class);
-        $route->method('uri')->willReturn($uri);
-        $route->method('gatherMiddleware')->willReturn($middlewares);
-        $route->method('getAction')->willReturn($action);
-        $route->method('getName')->willReturn('test.route');
-        return $route;
+        $tier = $action['tier'] ?? null;
+        $tier = is_string($tier) && $tier !== '' ? $tier : null;
+
+        return new RouteInfo(
+            name: 'test.route',
+            uri: $uri,
+            methods: [],
+            parameters: [],
+            parameterDefaults: [],
+            middleware: $middlewares,
+            tier: $tier,
+            forgeAliases: [],
+        );
     }
 
     /**
-     * 构造一个未命名路由桩（getName 返回 null）。
+     * 构造一个未命名 RouteInfo（name=null）。
+     *
+     * @param array<string, mixed> $action
      */
-    private function makeUnnamedRoute(string $uri, array $middlewares, array $action = []): Route
+    private function makeUnnamedRoute(string $uri, array $middlewares, array $action = []): RouteInfo
     {
-        $route = $this->createStub(Route::class);
-        $route->method('uri')->willReturn($uri);
-        $route->method('gatherMiddleware')->willReturn($middlewares);
-        $route->method('getAction')->willReturn($action);
-        $route->method('getName')->willReturn(null);
-        return $route;
+        $tier = $action['tier'] ?? null;
+        $tier = is_string($tier) && $tier !== '' ? $tier : null;
+
+        return new RouteInfo(
+            name: null,
+            uri: $uri,
+            methods: [],
+            parameters: [],
+            parameterDefaults: [],
+            middleware: $middlewares,
+            tier: $tier,
+            forgeAliases: [],
+        );
     }
 
     private function makeResolver(array $levels): TierResolver
@@ -195,7 +214,7 @@ class TierResolverTest extends TestCase
             'admin' => ['match' => ['prefix' => ['admin']]],
         ]);
 
-        // 注意：Laravel Route::uri() 规范化后无前导斜杠（与 EndpointTest 中 'admin/users' 一致）
+        // 注意：RouteInfo::uri 无前导斜杠（与 EndpointTest 中 'admin/users' 一致）
         $this->assertSame('admin', $resolver->resolve($this->makeRoute('admin/users', [])));
         // 完全相等的 URI 也应命中
         $this->assertSame('admin', $resolver->resolve($this->makeRoute('admin', [])));
@@ -277,9 +296,9 @@ class TierResolverTest extends TestCase
         $route = $this->makeUnnamedRoute('/some/uri', [], []);
 
         // 无 tier 无 name 在 strict 模式下走的是 RouteTierNotAssignedException 路径
-        // 但前提是没有命中任何层级——这里空配置，所以会走兖底逻辑
+        // 但前提是没有命中任何层级——这里空配置，所以会走兜底逻辑
         // strict_mode=true 且未命中层级 → 抛 RouteTierNotAssignedException
-        $this->expectException(\RouteForge\Laravel\Exceptions\RouteTierNotAssignedException::class);
+        $this->expectException(RouteTierNotAssignedException::class);
         $resolver->resolve($route);
     }
 
@@ -302,7 +321,7 @@ class TierResolverTest extends TestCase
 
         $route = $this->makeUnnamedRoute('/some/uri', [], []);
 
-        $this->expectException(\RouteForge\Laravel\Exceptions\RouteTierNotAssignedException::class);
+        $this->expectException(RouteTierNotAssignedException::class);
         $this->expectExceptionMessage('Add ->tier(...) to the route or a match rule in config/forge.php');
         $resolver->resolve($route);
     }

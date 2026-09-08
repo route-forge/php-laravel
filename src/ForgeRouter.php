@@ -9,7 +9,7 @@ use Closure;
 use Illuminate\Routing\Router as BaseRouter;
 use Illuminate\Routing\RouteRegistrar;
 use Illuminate\Support\Str;
-use RouteForge\Laravel\Exceptions\UnknownLevelException;
+use RouteForge\Common\Exception\UnknownLevelException;
 use UnitEnum;
 
 /**

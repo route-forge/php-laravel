@@ -7,7 +7,7 @@ namespace RouteForge\Laravel\Tests\Feature;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Orchestra\Testbench\TestCase;
-use RouteForge\Laravel\Cache\RouteCache;
+use RouteForge\Common\Cache\RouteCache;
 use RouteForge\Laravel\ForgeServiceProvider;
 use Symfony\Component\Console\Output\BufferedOutput;
 

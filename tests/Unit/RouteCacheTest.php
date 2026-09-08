@@ -9,7 +9,8 @@ use Illuminate\Cache\FileStore;
 use Illuminate\Cache\Repository;
 use Illuminate\Filesystem\Filesystem;
 use PHPUnit\Framework\TestCase;
-use RouteForge\Laravel\Cache\RouteCache;
+use RouteForge\Common\Cache\RouteCache;
+use RouteForge\Laravel\Adapter\LaravelCacheAdapter;
 
 /**
  * RouteCache 单元测试。
@@ -20,8 +21,9 @@ use RouteForge\Laravel\Cache\RouteCache;
  * TTL 由构造函数统一传入，set() 不再从 payload 中读取 cache 字段。
  *
  * 驱动覆盖：ArrayStore（内存，默认）+ FileStore（文件，验证非内存驱动
- * 走同一套 keys-index 逻辑）。RouteForge 缓存逻辑对具体 store 无感知（统一走
- * Illuminate\Contracts\Cache\Repository 接口），redis 驱动复用同一代码路径，
+ * 走同一套 keys-index 逻辑）。RouteForge 缓存逻辑对具体 store 无感知
+ * （common RouteCache 只依赖 CacheInterface，经 LaravelCacheAdapter 桥接
+ * Illuminate\Contracts\Cache\Repository），redis 驱动复用同一代码路径，
  * 无专属分支，故不单列测试（如需 redis-server 集成测试可另建带 service 的 CI job）。
  * 不走 Laravel 容器，直接扩展 PHPUnit\Framework\TestCase。
  */
@@ -31,7 +33,8 @@ class RouteCacheTest extends TestCase
     {
         // 使用 ArrayStore（内存驱动）避免外部依赖
         $store = new Repository(new ArrayStore());
-        return new RouteCache($store, ttl: $ttl);
+
+        return new RouteCache(new LaravelCacheAdapter($store), ttl: $ttl);
     }
 
     public function test_set_and_get_returns_payload(): void
@@ -132,7 +135,7 @@ class RouteCacheTest extends TestCase
     public function test_debug_mode_skips_set_and_get(): void
     {
         $store = new Repository(new ArrayStore());
-        $cache = new RouteCache($store, debugMode: true, ttl: 60);
+        $cache = new RouteCache(new LaravelCacheAdapter($store), debugMode: true, ttl: 60);
         $payload = ['level' => 'admin', 'routes' => []];
         $cache->set('admin', $payload);
         $this->assertNull($cache->get('admin'));
@@ -141,7 +144,7 @@ class RouteCacheTest extends TestCase
     public function test_debug_mode_does_not_throw_on_clear(): void
     {
         $store = new Repository(new ArrayStore());
-        $cache = new RouteCache($store, debugMode: true);
+        $cache = new RouteCache(new LaravelCacheAdapter($store), debugMode: true);
         $cache->clear(); // should not throw
         $this->assertTrue(true);
     }
@@ -168,7 +171,7 @@ class RouteCacheTest extends TestCase
         mkdir($dir, 0777, true);
 
         try {
-            $cache   = new RouteCache(new Repository(new FileStore(new Filesystem(), $dir)), ttl: 60);
+            $cache   = new RouteCache(new LaravelCacheAdapter(new Repository(new FileStore(new Filesystem(), $dir))), ttl: 60);
             $payload = ['level' => 'admin', 'routes' => []];
 
             $cache->set('admin', $payload);

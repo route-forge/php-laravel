@@ -6,10 +6,10 @@ namespace RouteForge\Laravel\Tests\Feature;
 
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Orchestra\Testbench\TestCase;
-use ReflectionMethod;
+use RouteForge\Common\Config\ConfigFileGenerator;
+use RouteForge\Common\Repository\RouteRepository;
 use RouteForge\Laravel\ForgeServiceProvider;
 use RouteForge\Laravel\Http\ForgeManagerController;
-use RouteForge\Laravel\RouteRepository;
 
 /**
  * 管理器页面控制器测试（对应 .docs/SPEC.md §3.3）。
@@ -186,9 +186,7 @@ class ForgeManagerControllerTest extends TestCase
 
     public function test_generated_config_is_valid_php_and_escapes_level_names(): void
     {
-        $controller = new ForgeManagerController($this->app->make(RouteRepository::class));
-        $method = new ReflectionMethod($controller, 'generateConfigContent');
-        $method->setAccessible(true);
+        $generator = new ConfigFileGenerator();
 
         // 恶意层级名：尝试闭合数组并注入语句
         $evil = "x'] ; passthru('id'); //";
@@ -197,7 +195,7 @@ class ForgeManagerControllerTest extends TestCase
         ];
 
         /** @var string $php */
-        $php = $method->invoke($controller, $levels, ['cache_ttl' => 60]);
+        $php = $generator->generate($levels, ['cache_ttl' => 60], []);
 
         // 1) 生成的内容必须是语法合法的 PHP（写临时文件后 php -l 校验）
         $tmp = tempnam(sys_get_temp_dir(), 'forge-cfg-') . '.php';

@@ -9,7 +9,7 @@ use Closure;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\RouteRegistrar as BaseRouteRegistrar;
 use Illuminate\Support\Facades\Log;
-use RouteForge\Laravel\Exceptions\UnknownLevelException;
+use RouteForge\Common\Exception\UnknownLevelException;
 use Throwable;
 use UnitEnum;
 

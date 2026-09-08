@@ -8,8 +8,8 @@ Route Forge exposes Laravel's named routes through a small HTTP metadata endpoin
 [![Total Downloads](https://img.shields.io/packagist/dt/route-forge/laravel.svg?style=flat-square)](https://packagist.org/packages/route-forge/laravel)
 [![PHP](https://img.shields.io/packagist/php-v/route-forge/laravel.svg?style=flat-square)](#requirements)
 [![Laravel](https://img.shields.io/badge/Laravel-11%20|%2012%20|%2013-red.svg?style=flat-square)](#requirements)
-[![Tests](https://img.shields.io/github/actions/workflow/status/route-forge/route-forge-laravel/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/route-forge/route-forge-laravel/actions)
-[![License](https://img.shields.io/github/license/route-forge/route-forge-laravel.svg?style=flat-square)](./LICENSE)
+[![Tests](https://img.shields.io/github/actions/workflow/status/route-forge/php-laravel/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/route-forge/php-laravel/actions)
+[![License](https://img.shields.io/github/license/route-forge/php-laravel.svg?style=flat-square)](./LICENSE)
 
 **语言 / Language:** [English](./README.md) · [简体中文](./README_zh.md)
 
@@ -192,7 +192,7 @@ In development, a visual route panel is available at `GET /_forge/manager`:
 
 ## Repository & docs
 
-This repository ships the **`route-forge/laravel` composer package** (the backend). It was split out from the route-forge monorepo; the frontend packages (`@route-forge/core`, `@route-forge/vue`, `@route-forge/react`) are maintained separately.
+This repository ships the **`route-forge/laravel` composer package** (the backend adapter). The framework-agnostic core (tier resolution, aliases, route repository, caching, TS type generation) lives in the companion [`route-forge/common`](https://github.com/route-forge/php-common) package and is installed automatically as a dependency; the frontend packages (`@route-forge/core`, `@route-forge/vue`, `@route-forge/react`) are maintained separately.
 
 - [`.docs/SPEC.md`](./.docs/SPEC.md) — functional specification (this repo covers §3 backend features, §5 config, §6 error codes).
 - [`.docs/DESIGN.md`](./.docs/DESIGN.md) — design rationale and key technical decisions.
@@ -200,8 +200,16 @@ This repository ships the **`route-forge/laravel` composer package** (the backen
 
 ## Development
 
+This package depends on the framework-agnostic core [`route-forge/common`](https://github.com/route-forge/php-common). Locally the two repos are wired via a git-ignored `composer.local.json` (path repository → `../route-forge-common`); `composer.json` itself stays clean for publishing.
+
 ```bash
+# local development (path repository to ../route-forge-common)
+COMPOSER=composer.local.json composer install
+COMPOSER=composer.local.json composer update
+
+# once route-forge/common is published to Packagist, plain
 composer install
+
 composer test            # run the PHPUnit suite
 composer test:coverage   # text coverage report
 ```

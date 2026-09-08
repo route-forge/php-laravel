@@ -8,8 +8,8 @@ Route Forge 通过一个轻量的 HTTP 元信息端点把 Laravel 的命名路�
 [![Total Downloads](https://img.shields.io/packagist/dt/route-forge/laravel.svg?style=flat-square)](https://packagist.org/packages/route-forge/laravel)
 [![PHP](https://img.shields.io/packagist/php-v/route-forge/laravel.svg?style=flat-square)](#环境要求)
 [![Laravel](https://img.shields.io/badge/Laravel-11%20|%2012%20|%2013-red.svg?style=flat-square)](#环境要求)
-[![Tests](https://img.shields.io/github/actions/workflow/status/route-forge/route-forge-laravel/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/route-forge/route-forge-laravel/actions)
-[![License](https://img.shields.io/github/license/route-forge/route-forge-laravel.svg?style=flat-square)](./LICENSE)
+[![Tests](https://img.shields.io/github/actions/workflow/status/route-forge/php-laravel/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/route-forge/php-laravel/actions)
+[![License](https://img.shields.io/github/license/route-forge/php-laravel.svg?style=flat-square)](./LICENSE)
 
 **语言 / Language:** [English](./README.md) · [简体中文](./README_zh.md)
 
@@ -192,7 +192,7 @@ php artisan route:forge:clear
 
 ## 仓库与文档
 
-本仓库发布 **`route-forge/laravel` composer 包**（后端）。它自 route-forge monorepo 拆分而来；前端包（`@route-forge/core`、`@route-forge/vue`、`@route-forge/react`）在另一仓库独立维护。
+本仓库发布 **`route-forge/laravel` composer 包**（后端适配层）。框架无关核心（层级解析、别名、路由仓库、缓存、TS 类型生成）位于配套的 [`route-forge/common`](https://github.com/route-forge/php-common) 包，随依赖自动安装；前端包（`@route-forge/core`、`@route-forge/vue`、`@route-forge/react`）在另一仓库独立维护。
 
 - [`.docs/SPEC.md`](./.docs/SPEC.md)——功能规格说明书（本仓库对应 §3 后端功能、§5 配置项、§6 错误码）。
 - [`.docs/DESIGN.md`](./.docs/DESIGN.md)——设计思路与关键技术决策。
@@ -200,8 +200,16 @@ php artisan route:forge:clear
 
 ## 开发
 
+本包依赖框架无关核心 [`route-forge/common`](https://github.com/route-forge/php-common)。本地开发通过**不入版本库**的 `composer.local.json`（path repository → `../route-forge-common`）串联两个仓库；`composer.json` 本身保持干净，可直接发布。
+
 ```bash
+# 本地开发（path repository 指向 ../route-forge-common）
+COMPOSER=composer.local.json composer install
+COMPOSER=composer.local.json composer update
+
+# route-forge/common 发布到 Packagist 后，直接
 composer install
+
 composer test            # 运行 PHPUnit 测试套件
 composer test:coverage   # 文本覆盖率报告
 ```

@@ -6,8 +6,8 @@ namespace RouteForge\Laravel\Http;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
-use RouteForge\Laravel\Exceptions\ForgeExceptionContract;
-use RouteForge\Laravel\RouteRepository;
+use RouteForge\Common\Contract\ForgeExceptionContract;
+use RouteForge\Common\Repository\RouteRepository;
 
 /**
  * 元信息查询端点控制器：GET /{endpoint_prefix}/{level} 与 GET /{endpoint_prefix}

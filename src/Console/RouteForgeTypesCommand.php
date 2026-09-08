@@ -7,10 +7,13 @@ namespace RouteForge\Laravel\Console;
 use Illuminate\Console\Command;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\File;
-use RouteForge\Laravel\AliasResolver;
-use RouteForge\Laravel\Exceptions\ForgeExceptionContract;
-use RouteForge\Laravel\RouteRepository;
-use RouteForge\Laravel\TierResolver;
+use RouteForge\Common\Alias\AliasResolver;
+use RouteForge\Common\Analyzer\RouteAnalyzer;
+use RouteForge\Common\Contract\ForgeExceptionContract;
+use RouteForge\Common\Filter\RouteNameFilter;
+use RouteForge\Common\Tier\TierResolver;
+use RouteForge\Common\Type\TypeGenerator;
+use RouteForge\Laravel\Adapter\LaravelRouteNormalizer;
 
 /**
  * 从路由表生成 TS 类型声明
@@ -39,97 +42,71 @@ class RouteForgeTypesCommand extends Command
             $this->error("Unknown level: {$filterLevel}");
             $this->line('Available levels: ' . (empty($levels) ? '(none)' : implode(', ',
                     $levels)));
+
             return 1;
         }
 
-        // 收集路由元信息（按层级分组）
+        // 数据收集（框架无关业务在 common RouteAnalyzer 中完成；本命令只负责 I/O 与渲染）
+        $filter = RouteNameFilter::withExtraPrefixes(['storage.']);
+        $normalizer = new LaravelRouteNormalizer();
+        $infos = [];
+        foreach ($router->getRoutes() as $route) {
+            $infos[] = $normalizer->normalize($route);
+        }
+
+        $analyzer = new RouteAnalyzer($resolver, new AliasResolver((array) config('forge.aliases', []), $filter), $filter);
+        try {
+            $analysis = $analyzer->analyze($infos);
+        } catch (ForgeExceptionContract $e) {
+            $this->error("[{$e->code()}] {$e->getMessage()}");
+
+            return 1;
+        }
+
+        // 组装「层级 → 路由名 → 类型约束」的二维映射
         // 预置全部目标层级（含 0 路由的空层级）：保证 ForgeLevel 联合类型覆盖
         // 所有已配置层级，前端引用「空层级」的路由名不再因类型缺失而 TS 报错
         $targets = $filterLevel !== null && $filterLevel !== '' ? [$filterLevel] : $levels;
         $routesByLevel = array_fill_keys($targets, []);
-        // 「有 tier 无 name」的路由无法进入任何元信息（RF_BE_005 仅严格模式抛出），
-        // 非严格模式下静默消失排查极难，命令层直接在控制台暴露
-        $tierNoNameWarnings = [];
-        foreach ($router->getRoutes() as $route) {
-            $name = $route->getName();
-            if ($name === null || $name === '') {
-                $tier = $route->getAction()['tier'] ?? null;
-                if (is_string($tier) && $tier !== '') {
-                    $tierNoNameWarnings[] = 'Route (' . $route->uri() . ') has tier [' . $tier
-                        . '] but no route name assigned; it will not appear in any forge endpoint or command output. '
-                        . 'Add ->name(...) to the route or remove the tier.';
-                }
-                continue;
-            }
-            if (RouteRepository::isExcludedRouteName($name)) {
-                continue;
-            }
 
-            // resolve 可能抛 Forge 系异常（RF_BE_001/002/004/005/006）：
-            // 与别名错误同款处理，输出 [错误码] 消息而非裸堆栈
-            try {
-                $level = $resolver->resolve($route);
-            } catch (ForgeExceptionContract $e) {
-                $this->error("[{$e->code()}] {$e->getMessage()}");
-                return 1;
-            }
-
-            // unassigned 路由不生成类型（SPEC §3.2：无层级归属，不进入 ForgeRoutes 映射）
-            if ($level === null) {
-                continue;
-            }
-
-            // --level 过滤：仅包含指定层级的路由
-            if ($filterLevel !== null && $filterLevel !== '' && $level !== $filterLevel) {
+        $typeGenerator = new TypeGenerator();
+        foreach ($analysis['rows'] as $r) {
+            // unassigned 路由不生成类型（SPEC §3.2：无层级归属，不进入 ForgeRoutes 映射）；
+            // 别名行已由 analyzer 预生成（跟随目标层级），此处统一过滤即可
+            // 非目标层级（--level 过滤）也跳过：未 isset 的键不能隐式创建，
+            // 否则过滤后 d.ts 仍会出现 client 等层级块
+            if ($r['tier'] === null || !isset($routesByLevel[$r['level']])) {
                 continue;
             }
 
             $methods = array_values(array_filter(
-                $route->methods(),
-                fn($m) => strtoupper($m) !== 'HEAD',
+                $r['methods'],
+                fn ($m) => strtoupper($m) !== 'HEAD',
             ));
             $method  = !empty($methods) ? strtoupper($methods[0]) : 'GET';
-            $params  = $route->parameterNames();
             $hasBody = in_array($method, self::BODY_METHODS, true);
 
             // 从 URI 模板提取 URL 可选参数（{param?} 语法）
-            $optionalParams = $this->extractOptionalParams($route->uri());
+            $optionalParams = $typeGenerator->extractOptionalParams($r['uri']);
 
-            $routesByLevel[$level][$name] = [
+            $routesByLevel[$r['level']][$r['name']] = [
                 'method'  => $method,
-                'params'  => $params,
+                'params'  => $r['parameters'],
                 'optionalParams' => $optionalParams,
-                'defaults'       => $route->defaults,
+                'defaults'       => $r['parameter_defaults'],
                 'hasBody' => $hasBody,
                 // response 始终为 unknown（v1.0 不支持自定义响应类型）
                 'response' => 'unknown',
             ];
         }
 
-        // 别名注入（SPEC §3.1.7）：为别名生成与目标路由一致的类型条目，
-        // 使前端在路由改名后继续使用旧名时 TS 类型仍合法。
-        // 目标在 unassigned 层级时不生成类型（与真实路由的规则一致，见上方收集逻辑）。
-        $aliasResolver = new AliasResolver((array) config('forge.aliases', []));
-        try {
-            $aliasResolution = $aliasResolver->resolve($router->getRoutes());
-        } catch (ForgeExceptionContract $e) {
-            $this->error("[{$e->code()}] {$e->getMessage()}");
-            return 1;
-        }
-        foreach ($aliasResolution['aliases'] as $alias => $target) {
-            foreach ($routesByLevel as $level => $levelRoutes) {
-                if (isset($levelRoutes[$target])) {
-                    $routesByLevel[$level][$alias] = $levelRoutes[$target];
-                    break;
-                }
-            }
-        }
-
         // 输出
         if ($this->option('json')) {
-            $output = $this->generateJson($routesByLevel);
+            $output = $typeGenerator->generateJson($routesByLevel);
         } else {
-            $output = $this->generateDts($routesByLevel);
+            // 端点注释取实际配置（规范化同端点注册），自定义 prefix 后不再失真
+            $endpointPrefix = '/' . ltrim(rtrim((string) config('forge.endpoint_prefix', '/_forge/routes'), '/'), '/');
+            $output = $typeGenerator->generateDts($routesByLevel, $endpointPrefix);
         }
 
         $outFile = $this->option('out');
@@ -140,26 +117,28 @@ class RouteForgeTypesCommand extends Command
             }
             File::put($outFile, $output);
             $this->info("Written to: {$outFile}");
-            $this->printTierNoNameWarnings($tierNoNameWarnings);
+            $this->printWarnings($analysis['warnings']);
+
             return 0;
         }
 
-        $this->printTierNoNameWarnings($tierNoNameWarnings);
+        $this->printWarnings($analysis['warnings']);
         $this->line($output);
+
         return 0;
     }
 
     /**
-     * 「有 tier 无 name」警告输出到 stderr：不带 --out 时 stdout 即产物本身
+     * 警告输出到 stderr：不带 --out 时 stdout 即产物本身
      * （artisan route:forge:types > x.d.ts 重定向场景），警告不得混入产物；
      * BufferedOutput（测试/Kernel::call）未实现 ConsoleOutputInterface，
      * getErrorOutput 回退为同一输出，警告仍可捕获。
      *
-     * @param string[] $tierNoNameWarnings
+     * @param string[] $warnings
      */
-    private function printTierNoNameWarnings(array $tierNoNameWarnings): void
+    private function printWarnings(array $warnings): void
     {
-        if ($tierNoNameWarnings === []) {
+        if ($warnings === []) {
             return;
         }
 
@@ -170,193 +149,8 @@ class RouteForgeTypesCommand extends Command
             ? $output->getErrorOutput()
             : $output;
 
-        foreach ($tierNoNameWarnings as $warning) {
+        foreach ($warnings as $warning) {
             $target->writeln("<comment>{$warning}</comment>");
         }
-    }
-
-    /**
-     * 生成 d.ts 内容（二级映射：层级 → 路由名 → 类型约束）
-     *
-     * 生成的 ForgeRouteMap 同时通过 module augmentation 增强 @route-forge/core 的同名接口，
-     * 使前端 composable（useForge / useForgeApi）自动获得路由名和参数的类型推断。
-     *
-     * @param array<string,array<string,array{method:string,params:string[],optionalParams:string[],defaults:array<string,mixed>,hasBody:bool,response:string}>> $routesByLevel
-     */
-    private function generateDts(array $routesByLevel): string
-    {
-        $timestamp = date('Y-m-d\TH:i:s.000\Z');
-        $levels = array_map(fn($l) => $l === '' ? 'unassigned' : $l, array_keys($routesByLevel));
-        // 注释中的端点取实际配置（规范化同端点注册），自定义 prefix 后不再失真
-        $endpointPrefix = '/' . ltrim(rtrim((string) config('forge.endpoint_prefix', '/_forge/routes'), '/'), '/');
-
-        $lines      = [];
-        $lines[]    = '// AUTO-GENERATED by route:forge:types. Do not edit.';
-        $lines[]    = "// 生成时间: {$timestamp}";
-        $lines[]    = "// 端点: {$endpointPrefix}";
-        $lines[] = 'import { ForgeRouteMap } from "@route-forge/core";';
-        $lines[]    = '';
-        $lines[]    = '// ─── 层级名联合类型 ───────────────────────────────────────────';
-        $levelUnion = empty($levels) ? 'never' : implode(' | ',
-            array_map(fn($l) => "'{$l}'", $levels));
-        $lines[]    = "export type ForgeLevel = {$levelUnion};";
-        $lines[]    = '';
-        $lines[]    = '// ─── 各层级路由名联合类型 ─────────────────────────────────────';
-        $lines[] = 'export type ForgeRouteName<L extends ForgeLevel> = L extends keyof ForgeRouteMap';
-        $lines[] = '  ? keyof ForgeRouteMap[L] & string';
-        $lines[]    = '  : never;';
-        $lines[]    = '';
-        $lines[] = '// ─── 单条路由元信息（端点返回的 routes 值结构） ────────────────────';
-        $lines[] = 'export interface ForgeRouteMeta {';
-        $lines[] = '  method: string;';
-        $lines[] = '  uri: string;';
-        $lines[] = '  parameters: string[];';
-        $lines[] = '  parameter_defaults: Record<string, unknown>;';
-        $lines[] = '}';
-        $lines[] = '';
-        $lines[] = '// ─── 按层级 → 路由名 → 类型约束的映射 ────────────────────────';
-        $lines[] = '// 通过 module augmentation 增强 @route-forge/core 的 ForgeRouteMap，';
-        $lines[] = '// 使 useForge / useForgeApi 自动获得路由名和参数的类型推断。';
-        $lines[] = '// ⚠ 依赖 @route-forge/core 包，请确保前端项目已安装该依赖。';
-        $lines[]    = '';
-        $lines[] = "declare module '@route-forge/core' {";
-        $lines[] = '  interface ForgeRouteMap {';
-
-        foreach ($routesByLevel as $level => $routes) {
-            $levelKey = $level ?: 'unassigned';
-            $lines[]  = "    {$this->quoteKey($levelKey)}: {";
-            foreach ($routes as $name => $r) {
-                $paramsFields = $this->formatParamsFields($r['params'], $r['optionalParams'],
-                    '        ');
-                $paramsBlock  = empty($paramsFields)
-                    ? '{}'
-                    : "{\n" . implode("\n", $paramsFields) . "\n      }";
-                $lines[]      = "      {$this->quoteKey($name)}: {";
-                $lines[]      = "        method: '{$r['method']}';";
-                $lines[]      = "        params: {$paramsBlock};";
-                if ($r['hasBody']) {
-                    $lines[] = "        body: unknown;";
-                }
-                $lines[] = "        response: {$r['response']};";
-                $lines[] = "      };";
-            }
-            $lines[] = '    };';
-            $lines[] = '';
-        }
-
-        $lines[] = '  }';
-        $lines[] = '}';
-        $lines[] = '';
-        $lines[] = '// ─── 本地别名（向后兼容） ──────────────────────────────────────';
-        $lines[] = 'export type ForgeRoutes = ForgeRouteMap;';
-        $lines[] = '';
-        $lines[] = '// ─── 工具类型：从 ForgeRouteMap 提取具体字段 ────────────────────';
-        $lines[]    = '';
-        $lines[]    = '/** 提取指定层级 + 路由名的 method */';
-        $lines[]    = 'export type ForgeMethod<';
-        $lines[]    = '  L extends ForgeLevel,';
-        $lines[]    = '  N extends ForgeRouteName<L>,';
-        $lines[] = '> = L extends keyof ForgeRouteMap';
-        $lines[] = "  ? N extends keyof ForgeRouteMap[L] ? ForgeRouteMap[L][N]['method'] : never";
-        $lines[] = '  : never;';
-        $lines[]    = '';
-        $lines[]    = '/** 提取指定层级 + 路由名的路径参数 */';
-        $lines[]    = 'export type ForgeParams<';
-        $lines[]    = '  L extends ForgeLevel,';
-        $lines[]    = '  N extends ForgeRouteName<L>,';
-        $lines[] = '> = L extends keyof ForgeRouteMap';
-        $lines[] = "  ? N extends keyof ForgeRouteMap[L] ? ForgeRouteMap[L][N]['params'] : never";
-        $lines[] = '  : never;';
-        $lines[]    = '';
-        $lines[]    = '/** 提取指定层级 + 路由名的 body 类型（GET/DELETE 为 never） */';
-        $lines[]    = 'export type ForgeBody<';
-        $lines[]    = '  L extends ForgeLevel,';
-        $lines[]    = '  N extends ForgeRouteName<L>,';
-        $lines[] = '> = L extends keyof ForgeRouteMap';
-        $lines[] = '  ? N extends keyof ForgeRouteMap[L]';
-        $lines[] = "    ? 'body' extends keyof ForgeRouteMap[L][N]";
-        $lines[] = "      ? ForgeRouteMap[L][N]['body']";
-        $lines[] = '      : never';
-        $lines[]    = '    : never';
-        $lines[]    = '  : never;';
-        $lines[]    = '';
-        $lines[]    = '/** 提取指定层级 + 路由名的 response 类型 */';
-        $lines[]    = 'export type ForgeResponse<';
-        $lines[]    = '  L extends ForgeLevel,';
-        $lines[]    = '  N extends ForgeRouteName<L>,';
-        $lines[] = '> = L extends keyof ForgeRouteMap';
-        $lines[] = "  ? N extends keyof ForgeRouteMap[L] ? ForgeRouteMap[L][N]['response'] : never";
-        $lines[] = '  : never;';
-        $lines[]    = '';
-
-        return implode("\n", $lines);
-    }
-
-    /**
-     * 生成 JSON 对象（二级结构：层级 → 路由名）
-     */
-    private function generateJson(array $routesByLevel): string
-    {
-        $out = [];
-        foreach ($routesByLevel as $level => $routes) {
-            $levelData = [];
-            foreach ($routes as $name => $r) {
-                $entry = [
-                    'method' => $r['method'],
-                    'params' => $r['params'],
-                ];
-                if (!empty($r['defaults'])) {
-                    $entry['parameter_defaults'] = (object)$r['defaults'];
-                }
-                if ($r['hasBody']) {
-                    $entry['body'] = 'unknown';
-                }
-                $entry['response'] = $r['response'];
-                $levelData[$name]  = $entry;
-            }
-            // (object) 强转：空层级序列化为 {} 而非 []，保持「按路由名索引的对象」契约
-            $out[$level ?: 'unassigned'] = (object) $levelData;
-        }
-        return json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-    }
-
-    private function quoteKey(string $name): string
-    {
-        // 仅在含特殊字符时引号
-        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name)) {
-            return $name;
-        }
-        return json_encode($name);
-    }
-
-    /**
-     * 格式化 params 字段列表
-     *
-     * TS 类型的 ? 标记基于 URL 模板中参数是否可选（{param?} 语法），
-     * 而非是否有默认值。默认值通过 parameter_defaults 独立返回。
-     *
-     * @param string[] $params
-     * @param string[] $optionalParams URL 中可选的参数名列表（{param?} 语法）
-     * @param string   $indent
-     *
-     * @return string[]
-     */
-    private function formatParamsFields(array $params, array $optionalParams, string $indent): array
-    {
-        return array_map(function ($p) use ($optionalParams, $indent) {
-            $optional = in_array($p, $optionalParams, true) ? '?' : '';
-            return "{$indent}{$p}{$optional}: string | number;";
-        }, $params);
-    }
-
-    /**
-     * 从 URI 模板中提取可选参数名（{param?} 语法）
-     *
-     * @return string[]
-     */
-    private function extractOptionalParams(string $uri): array
-    {
-        preg_match_all('/\{(\w+)\?\}/', $uri, $matches);
-        return $matches[1] ?? [];
     }
 }

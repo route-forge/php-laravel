@@ -6,7 +6,7 @@ namespace RouteForge\Laravel\Tests\Feature;
 
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Orchestra\Testbench\TestCase;
-use RouteForge\Laravel\Exceptions\UnknownLevelException;
+use RouteForge\Common\Exception\UnknownLevelException;
 use RouteForge\Laravel\ForgeServiceProvider;
 
 /**

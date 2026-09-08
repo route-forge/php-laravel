@@ -19,12 +19,18 @@ use Illuminate\Routing\Router as BaseRouter;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Illuminate\Support\ServiceProvider;
+use RouteForge\Common\Cache\RouteCache as CommonRouteCache;
+use RouteForge\Common\Dto\RouteInfo;
+use RouteForge\Common\Exception\UnknownLevelException;
+use RouteForge\Common\Filter\RouteNameFilter;
+use RouteForge\Common\Repository\RouteRepository as CommonRouteRepository;
+use RouteForge\Common\Tier\TierResolver as CommonTierResolver;
+use RouteForge\Laravel\Adapter\LaravelCacheAdapter;
+use RouteForge\Laravel\Adapter\LaravelRouteNormalizer;
 use RouteForge\Laravel\Blade\ForgeSummaryRenderer;
-use RouteForge\Laravel\Cache\RouteCache;
 use RouteForge\Laravel\Console\RouteForgeClearCommand;
 use RouteForge\Laravel\Console\RouteForgeListCommand;
 use RouteForge\Laravel\Console\RouteForgeTypesCommand;
-use RouteForge\Laravel\Exceptions\UnknownLevelException;
 use RouteForge\Laravel\Http\ForgeManagerController;
 use RouteForge\Laravel\Http\Middleware\ManagerAllowedIps;
 use RouteForge\Laravel\Http\RouteMetadataController;
@@ -36,7 +42,8 @@ use RouteForge\Laravel\Http\RouteMetadataController;
  *   1. 注册 `->tier()` 宏到 Illuminate\Routing\Route（§3.1.1）
  *   2. 把 'router' 单例重绑为 ForgeRouter，让 Route::group(['tier'=>...]) 自动透传
  *      tier 到组内每条路由的 action（§3.1.3, §3.1.4）
- *   3. 绑定 RouteCache / TierResolver / RouteRepository 依赖（§3.1.5）
+ *   3. 绑定 common 层 RouteCache / TierResolver / RouteRepository 依赖
+ *      （框架无关业务逻辑已下沉 route-forge/common，本包只做 Laravel 适配）
  *   4. 注册元信息查询端点 `GET /_forge/routes/{level}`（§3.1.5）
  *   5. 发布 config/forge.php
  *   6. 监听 route:clear 命令，自动连带清除 Route Forge 缓存
@@ -152,16 +159,18 @@ class ForgeServiceProvider extends ServiceProvider
     /**
      * 绑定 RouteForge 后端服务的核心依赖（§3.1.5）。
      *
-     * RouteMetadataController 通过构造函数注入 RouteRepository；
-     * 容器自动解析时，需要预先绑定 RouteCache / TierResolver / RouteRepository
-     * 这三个非自动可解析的构造参数（特别是 array 类型）。
+     * 业务逻辑全部来自 route-forge/common；本方法只做：
+     *   - 把 Laravel Cache store 桥接为 common CacheInterface；
+     *   - 把 Laravel 路由集合 + LaravelRouteNormalizer 注入 common RouteRepository；
+     *   - 把用户 classifier（按 Laravel Route 书写）包装为 common 的
+     *     fn(RouteInfo)（从 RouteInfo::source 取回原始 Laravel Route）。
      */
     protected function registerBindings(): void
     {
         // RouteCache：按 forge.cache_driver 选择 store；null 表示用默认 cache.store
         // 开发模式（app.debug=true）下跳过所有缓存读写，路由变更即时生效
         // TTL 由 forge.cache_ttl 统一控制所有层级与摘要端点
-        $this->app->singleton(RouteCache::class, function ($app) {
+        $this->app->singleton(CommonRouteCache::class, function ($app) {
             /** @var Container $app */
             $driver = $app->make('config')->get('forge.cache_driver');
             $store = $driver === null
@@ -169,18 +178,31 @@ class ForgeServiceProvider extends ServiceProvider
                 : $app->make('cache')->store($driver);
             $debugMode = (bool) $app->make('config')->get('app.debug', false);
             $ttl = $app->make('config')->get('forge.cache_ttl');
-            return new RouteCache($store, $debugMode, $ttl !== null ? (int) $ttl : null);
+
+            return new CommonRouteCache(
+                new LaravelCacheAdapter($store),
+                $debugMode,
+                $ttl !== null ? (int) $ttl : null,
+            );
         });
 
         // TierResolver：从 forge 配置组装
-        $this->app->singleton(TierResolver::class, function ($app) {
+        $this->app->singleton(CommonTierResolver::class, function ($app) {
             /** @var Container $app */
             $classifier = $app->make('config')->get('forge.classifier');
             // classifier 契约类型是 callable|null（SPEC §5）：Closure、函数名字符串、
             // [Class,'method'] 数组、可调用对象均合法。统一归一为 Closure 传入，
-            // 避免非 Closure callable 被静默丢弃（TierResolver 参数类型为 ?Closure）。
+            // 避免非 Closure callable 被静默丢弃。
             $classifier = is_callable($classifier) ? Closure::fromCallable($classifier) : null;
-            return new TierResolver(
+
+            if ($classifier !== null) {
+                // 用户回调按各自框架类型书写（SPEC 示例 fn(\Illuminate\Routing\Route $r)）：
+                // 从 RouteInfo::source 取回原始 Laravel Route 再调用，保持向后兼容。
+                $userClassifier = $classifier;
+                $classifier = static fn (RouteInfo $info): mixed => $userClassifier($info->source);
+            }
+
+            return new CommonTierResolver(
                 levelsConfig: $app->make('config')->get('forge.levels', []),
                 classifier: $classifier,
                 strictMode: (bool) $app->make('config')->get('forge.strict_mode', false),
@@ -192,15 +214,25 @@ class ForgeServiceProvider extends ServiceProvider
             );
         });
 
-        // RouteRepository：组合 router + tierResolver + cache + levelsConfig + aliasesConfig
-        $this->app->singleton(RouteRepository::class, function ($app) {
+        // RouteRepository：组合 router 路由集合 + normalizer + tierResolver + cache + 配置。
+        // 排除前缀 = common 默认（forge 自身端点）+ Laravel 框架内部路由（storage.*）。
+        $this->app->singleton(CommonRouteRepository::class, function ($app) {
             /** @var Container $app */
-            return new RouteRepository(
-                router: $app->make('router'),
-                tierResolver: $app->make(TierResolver::class),
-                cache: $app->make(RouteCache::class),
+            return new CommonRouteRepository(
+                routes: $app->make('router')->getRoutes(),
+                normalizer: new LaravelRouteNormalizer(),
+                tierResolver: $app->make(CommonTierResolver::class),
+                cache: $app->make(CommonRouteCache::class),
                 levelsConfig: $app->make('config')->get('forge.levels', []),
                 aliasesConfig: $app->make('config')->get('forge.aliases', []),
+                runtimeConfig: [
+                    'endpoint_prefix' => $app->make('config')->get('forge.endpoint_prefix', '/_forge/routes'),
+                    'url_prefix'      => $app->make('config')->get('forge.url_prefix'),
+                    'strict_mode'     => (bool) $app->make('config')->get('forge.strict_mode', false),
+                    'cache_ttl'       => $app->make('config')->get('forge.cache_ttl'),
+                    'scheme_version'  => $app->make('config')->get('forge.scheme_version', CommonRouteRepository::SCHEME_VERSION),
+                ],
+                filter: RouteNameFilter::withExtraPrefixes(['storage.']),
             );
         });
     }
@@ -231,6 +263,7 @@ class ForgeServiceProvider extends ServiceProvider
             $action = $this->getAction();
             $action['tier'] = $tier;
             $this->setAction($action);
+
             return $this;
         });
 
@@ -244,6 +277,7 @@ class ForgeServiceProvider extends ServiceProvider
             }
             /** @phpstan-ignore-next-line 宏经 Macroable 绑定 $this，可访问 protected $options */
             $this->options['tier'] = $tier;
+
             return $this;
         };
 
@@ -279,6 +313,7 @@ class ForgeServiceProvider extends ServiceProvider
             }
             $action['forge_aliases'] = array_values(array_unique(array_merge($existing, $aliases)));
             $this->setAction($action);
+
             return $this;
         });
     }
@@ -441,7 +476,7 @@ class ForgeServiceProvider extends ServiceProvider
 
         $this->app['events']->listen(CommandStarting::class, function (CommandStarting $event) {
             if ($event->command === 'route:clear') {
-                $this->app->make(RouteCache::class)->clear();
+                $this->app->make(CommonRouteCache::class)->clear();
             }
         });
     }

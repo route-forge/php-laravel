@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace RouteForge\Laravel\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use RouteForge\Laravel\Exceptions\AliasTargetException;
-use RouteForge\Laravel\Exceptions\DiscardedRegistrarAttributesException;
-use RouteForge\Laravel\Exceptions\RouteMissingNameException;
-use RouteForge\Laravel\Exceptions\RouteTierNotAssignedException;
-use RouteForge\Laravel\Exceptions\UnknownClassifierTierException;
-use RouteForge\Laravel\Exceptions\UnknownLevelException;
-use RouteForge\Laravel\Exceptions\CacheDriverException;
-use RouteForge\Laravel\Exceptions\ClassifierException;
+use RouteForge\Common\Exception\AliasTargetException;
+use RouteForge\Common\Exception\CacheDriverException;
+use RouteForge\Common\Exception\ClassifierException;
+use RouteForge\Common\Exception\DiscardedRegistrarAttributesException;
+use RouteForge\Common\Exception\RouteMissingNameException;
+use RouteForge\Common\Exception\RouteTierNotAssignedException;
+use RouteForge\Common\Exception\UnknownClassifierTierException;
+use RouteForge\Common\Exception\UnknownLevelException;
 
 /**
  * 异常契约冒烟测试（仅校验 code/httpStatus，未跑完整 Laravel 栈）。

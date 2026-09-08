@@ -6,10 +6,13 @@ namespace RouteForge\Laravel\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Routing\Router;
-use RouteForge\Laravel\AliasResolver;
-use RouteForge\Laravel\Exceptions\ForgeExceptionContract;
-use RouteForge\Laravel\RouteRepository;
-use RouteForge\Laravel\TierResolver;
+use RouteForge\Common\Alias\AliasResolver;
+use RouteForge\Common\Analyzer\RouteAnalyzer;
+use RouteForge\Common\Contract\ForgeExceptionContract;
+use RouteForge\Common\Filter\RouteNameFilter;
+use RouteForge\Common\Repository\RouteRepository;
+use RouteForge\Common\Tier\TierResolver;
+use RouteForge\Laravel\Adapter\LaravelRouteNormalizer;
 
 /**
  * 列出所有命名路由的层级分配（含别名条目，SPEC §3.1.7）
@@ -39,125 +42,64 @@ class RouteForgeListCommand extends Command
             $this->error("Unknown level: {$filterLevel}");
             $this->line('Available levels: ' . (empty($levels) ? '(none)' : implode(', ',
                     $levels)));
+
             return 1;
         }
 
-        // 别名解析（SPEC §3.1.7）：悬空别名 fail-fast；撞车等非致命问题收集为 warnings
-        $aliasResolver = new AliasResolver((array) config('forge.aliases', []));
-        try {
-            $aliasResolution = $aliasResolver->resolve($router->getRoutes());
-        } catch (ForgeExceptionContract $e) {
-            $this->error("[{$e->code()}] {$e->getMessage()}");
-            return 1;
-        }
-        $aliasWarnings = $aliasResolution['warnings'];
-
-        // 收集所有命名路由
-        $rows = [];
-        $infoByName = [];
-        // 层级计数（过滤前统计，反映完整路由表；别名跟随目标层级计入）
-        $levelCounts = [];
-        $levelByName = [];
-        // 「有 tier 无 name」的路由无法进入任何元信息（RF_BE_005 仅严格模式抛出），
-        // 非严格模式下静默消失排查极难，命令层直接在控制台暴露
-        $tierNoNameWarnings = [];
+        // 数据收集（框架无关业务在 common RouteAnalyzer 中完成；本命令只负责 I/O 与渲染）
+        $filter = RouteNameFilter::withExtraPrefixes(['storage.']);
+        $normalizer = new LaravelRouteNormalizer();
+        $infos = [];
         foreach ($router->getRoutes() as $route) {
-            $name = $route->getName();
-            if ($name === null || $name === '') {
-                $tier = $route->getAction()['tier'] ?? null;
-                if (is_string($tier) && $tier !== '') {
-                    $tierNoNameWarnings[] = 'Route (' . $route->uri() . ') has tier [' . $tier
-                        . '] but no route name assigned; it will not appear in any forge endpoint or command output. '
-                        . 'Add ->name(...) to the route or remove the tier.';
-                }
-                continue;
-            }
-            // 跳过 forge 自身端点路由与框架内部路由（如 Laravel 12+ 的 storage.*）
-            if (RouteRepository::isExcludedRouteName($name)) {
-                continue;
-            }
-
-            // resolve 可能抛 Forge 系异常（RF_BE_001/002/004/005/006）：
-            // 与别名错误同款处理，输出 [错误码] 消息而非裸堆栈
-            try {
-                $level = $resolver->resolve($route);
-            } catch (ForgeExceptionContract $e) {
-                $this->error("[{$e->code()}] {$e->getMessage()}");
-                return 1;
-            }
-            $methods = array_values(array_filter(
-                $route->methods(),
-                fn ($m) => strtoupper($m) !== 'HEAD'
-            ));
-
-            // --level 过滤（unassigned 特殊层级可与 --level=unassigned 对齐）
-            $displayLevel = $level ?? 'unassigned';
-
-            // 计数在过滤前进行：汇总始终反映完整路由表
-            $levelCounts[$displayLevel] = ($levelCounts[$displayLevel] ?? 0) + 1;
-            $levelByName[$name] = $displayLevel;
-            // 完整信息表（过滤前记录）：撞车红行需按目标路由取层级/方法/URI，
-            // 不受当前过滤影响
-            $infoByName[$name] = ['level' => $displayLevel, 'methods' => $methods, 'uri' => $route->uri()];
-
-            if ($filterLevel !== null && $filterLevel !== '' && $displayLevel !== $filterLevel) {
-                continue;
-            }
-
-            // --unassigned 过滤
-            if ($onlyUnassigned && $level !== null) {
-                continue;
-            }
-
-            $rows[] = [
-                'name' => $name,
-                'level' => $displayLevel,
-                'methods' => $methods,
-                'uri' => $route->uri(),
-                'alias_of' => null,
-            ];
+            $infos[] = $normalizer->normalize($route);
         }
 
-        // 别名条目：跟随目标路由的层级归属，仅当目标路由通过过滤时追加
-        $rowsByName = array_column($rows, null, 'name');
-        foreach ($aliasResolution['aliases'] as $alias => $target) {
-            // 别名计数跟随目标层级（与摘要 route_count 口径一致）
-            $targetLevel = $levelByName[$target] ?? null;
-            if ($targetLevel !== null) {
-                $levelCounts[$targetLevel] = ($levelCounts[$targetLevel] ?? 0) + 1;
-            }
+        $analyzer = new RouteAnalyzer($resolver, new AliasResolver((array) config('forge.aliases', []), $filter), $filter);
+        try {
+            $analysis = $analyzer->analyze($infos);
+        } catch (ForgeExceptionContract $e) {
+            // 悬空别名 / resolve 抛出的 Forge 系异常（RF_BE_001/002/004/005/006）：
+            // 输出 [错误码] 消息而非裸堆栈
+            $this->error("[{$e->code()}] {$e->getMessage()}");
 
-            $targetRow = $rowsByName[$target] ?? null;
-            if ($targetRow === null) {
-                continue; // 目标被 --level/--unassigned 过滤掉，别名随目标一起隐藏
-            }
-            $rows[] = [
-                'name' => $alias,
-                'level' => $targetRow['level'],
-                'methods' => $targetRow['methods'],
-                'uri' => $targetRow['uri'],
-                'alias_of' => $target,
-            ];
+            return 1;
         }
 
-        // --aliases 过滤：仅显示别名条目
-        if ($onlyAliases) {
-            $rows = array_values(array_filter($rows, fn (array $r) => $r['alias_of'] !== null));
-        }
+        $warnings   = $analysis['warnings'];
+        $aliases    = $analysis['aliases'];
+        $collisions = $analysis['collisions'];
+        // 过滤前全量行索引：撞车红行需按目标路由取层级/方法/URI，不受当前过滤影响
+        $rowByName = array_column($analysis['rows'], null, 'name');
 
-        // 当前可用层级（始终含 unassigned 特殊层级）
-        $availableLevels = array_merge($levels, ['unassigned']);
+        // 层级计数（过滤前统计，含 unassigned 与别名，与摘要 route_count 口径一致）
+        $levelCounts = $analysis['tier_counts'];
+
+        // 过滤（--level / --unassigned / --aliases）
+        $rows = [];
+        foreach ($analysis['rows'] as $r) {
+            if ($filterLevel !== null && $filterLevel !== '' && $r['level'] !== $filterLevel) {
+                continue;
+            }
+            // --unassigned 过滤：tier === null 才是未分配（--level=unassigned 语义等价）
+            if ($onlyUnassigned && $r['tier'] !== null) {
+                continue;
+            }
+            if ($onlyAliases && $r['alias_of'] === null) {
+                continue;
+            }
+            $rows[] = $r;
+        }
 
         // 过滤条件描述
-        $filter = [];
+        $filterDesc = [];
         if ($filterLevel !== null && $filterLevel !== '') {
-            $filter['level'] = $filterLevel;
+            $filterDesc['level'] = $filterLevel;
         }
         if ($onlyUnassigned) {
-            $filter['unassigned'] = true;
+            $filterDesc['unassigned'] = true;
         }
         if ($onlyAliases) {
-            $filter['aliases'] = true;
+            $filterDesc['aliases'] = true;
         }
 
         // 层级汇总：全部已配置层级 + unassigned（0 也列出），顺序 = 配置顺序
@@ -167,16 +109,29 @@ class RouteForgeListCommand extends Command
         }
         $orderedCounts['unassigned'] = $levelCounts['unassigned'] ?? 0;
 
+        // methods 过滤 HEAD（与端点元信息、管理器口径一致）
+        $methods = static fn (array $r): array => array_values(array_filter(
+            $r['methods'],
+            fn (string $m) => strtoupper($m) !== 'HEAD',
+        ));
+
         // JSON 输出（结构化对象，便于脚本消费；warnings 供 CI/脚本检测别名配置问题）
         if ($asJson) {
             $this->line(json_encode([
-                'levels' => $availableLevels,
-                'filter' => empty($filter) ? null : $filter,
+                'levels' => array_merge($levels, ['unassigned']),
+                'filter' => empty($filterDesc) ? null : $filterDesc,
                 'count'  => count($rows),
                 'tier_counts' => $orderedCounts,
-                'warnings' => array_merge($aliasWarnings, $tierNoNameWarnings),
-                'routes' => $rows,
+                'warnings' => $warnings,
+                'routes' => array_map(static fn (array $r): array => [
+                    'name' => $r['name'],
+                    'level' => $r['level'],
+                    'methods' => $methods($r),
+                    'uri' => $r['uri'],
+                    'alias_of' => $r['alias_of'],
+                ], $rows),
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
             return 0;
         }
 
@@ -193,39 +148,39 @@ class RouteForgeListCommand extends Command
 
         // 警告在任何过滤结果下都输出：配置问题（别名撞车 / tier 无 name）与
         // 当次过滤无关，0 行早退时也必须可见
-        foreach ($aliasWarnings as $warning) {
-            $this->warn($warning);
-        }
-        foreach ($tierNoNameWarnings as $warning) {
+        foreach ($warnings as $warning) {
             $this->warn($warning);
         }
 
         if (empty($rows)) {
             $this->info('No routes found matching the filter.');
+
             return 0;
         }
 
         // 被别名依赖的真实路由名（Name 列绿色标识：改名时需同步更新别名映射）
-        $aliasedTargets = array_values(array_unique(array_values($aliasResolution['aliases'])));
+        $aliasedTargets = array_values(array_unique(array_values($aliases)));
 
-        $tableRows = array_map(function (array $r) use ($aliasedTargets) {
+        $tableRows = array_map(function (array $r) use ($aliasedTargets, $methods) {
             // 别名整行黄色标识，真实路由行保持默认颜色（仅 table 模式；JSON 输出保持纯文本契约不变）
             if ($r['alias_of'] !== null) {
                 $yellow = static fn (string $cell): string => "<fg=yellow>{$cell}</>";
+
                 return [
                     $yellow($r['name']),
                     $yellow($r['level']),
-                    $yellow(implode('|', $r['methods'])),
+                    $yellow(implode('|', $methods($r))),
                     $yellow($r['uri']),
                     $yellow((string) $r['alias_of']),
                 ];
             }
             // 真实路由名被别名指向 → Name 列绿色（长期稳定对外名的审计信号）
             $hasAlias = in_array($r['name'], $aliasedTargets, true);
+
             return [
                 $hasAlias ? "<fg=green>{$r['name']}</>" : $r['name'],
                 $r['level'],
-                implode('|', $r['methods']),
+                implode('|', $methods($r)),
                 $r['uri'],
                 '—',
             ];
@@ -233,19 +188,20 @@ class RouteForgeListCommand extends Command
 
         // 撞车声明红行（仅 table 展示）：被忽略的别名声明，配置问题需肉眼可见；
         // 不进入 --json 的 routes 与端点元信息（真实路由优先，routes 只含可用名字）
-        foreach ($aliasResolution['collisions'] as $alias => $target) {
-            $info = $infoByName[$target] ?? null;
+        foreach ($collisions as $alias => $target) {
+            $info = $rowByName[$target] ?? null;
             $red = static fn (string $cell): string => "<fg=red>{$cell}</>";
             $tableRows[] = [
                 $red($alias),
                 $red($info['level'] ?? '—'),
-                $red(isset($info['methods']) ? implode('|', $info['methods']) : '—'),
+                $red(isset($info['methods']) ? implode('|', $methods($info)) : '—'),
                 $red($info['uri'] ?? '—'),
                 $red($target),
             ];
         }
 
         $this->table(['Name/Alias', 'Level', 'Methods', 'URI', 'Alias Of'], $tableRows);
+
         return 0;
     }
 }

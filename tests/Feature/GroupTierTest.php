@@ -8,7 +8,7 @@ use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Orchestra\Testbench\TestCase;
-use RouteForge\Laravel\Exceptions\UnknownLevelException;
+use RouteForge\Common\Exception\UnknownLevelException;
 use RouteForge\Laravel\ForgeServiceProvider;
 
 /**
