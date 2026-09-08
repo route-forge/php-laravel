@@ -11,6 +11,7 @@ use RouteForge\Common\Alias\AliasResolver;
 use RouteForge\Common\Analyzer\RouteAnalyzer;
 use RouteForge\Common\Contract\ForgeExceptionContract;
 use RouteForge\Common\Filter\RouteNameFilter;
+use RouteForge\Common\Repository\RouteRepository;
 use RouteForge\Common\Tier\TierResolver;
 use RouteForge\Common\Type\TypeGenerator;
 use RouteForge\Laravel\Adapter\LaravelRouteNormalizer;
@@ -71,8 +72,8 @@ class RouteForgeTypesCommand extends Command
         if ($this->option('json')) {
             $output = $typeGenerator->generateJson($routesByLevel);
         } else {
-            // 端点注释取实际配置（规范化同端点注册），自定义 prefix 后不再失真
-            $endpointPrefix = '/' . ltrim(rtrim((string) config('forge.endpoint_prefix', '/_forge/routes'), '/'), '/');
+            // 端点注释取实际配置，规范化与端点注册/摘要下发共用同一实现
+            $endpointPrefix = RouteRepository::normalizeEndpointPrefix((string) config('forge.endpoint_prefix', '/_forge/routes'));
             $output = $typeGenerator->generateDts($routesByLevel, $endpointPrefix);
         }
 
