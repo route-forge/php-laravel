@@ -71,69 +71,18 @@ class RouteForgeListCommand extends Command
         // 过滤前全量行索引：撞车红行需按目标路由取层级/方法/URI，不受当前过滤影响
         $rowByName = array_column($analysis['rows'], null, 'name');
 
-        // 层级计数（过滤前统计，含 unassigned 与别名，与摘要 route_count 口径一致）
-        $levelCounts = $analysis['tier_counts'];
-
-        // 过滤（--level / --unassigned / --aliases）
-        $rows = [];
-        foreach ($analysis['rows'] as $r) {
-            if ($filterLevel !== null && $filterLevel !== '' && $r['level'] !== $filterLevel) {
-                continue;
-            }
-            // --unassigned 过滤：tier === null 才是未分配（--level=unassigned 语义等价）
-            if ($onlyUnassigned && $r['tier'] !== null) {
-                continue;
-            }
-            if ($onlyAliases && $r['alias_of'] === null) {
-                continue;
-            }
-            $rows[] = $r;
-        }
-
-        // 过滤条件描述
-        $filterDesc = [];
-        if ($filterLevel !== null && $filterLevel !== '') {
-            $filterDesc['level'] = $filterLevel;
-        }
-        if ($onlyUnassigned) {
-            $filterDesc['unassigned'] = true;
-        }
-        if ($onlyAliases) {
-            $filterDesc['aliases'] = true;
-        }
-
-        // 层级汇总：全部已配置层级 + unassigned（0 也列出），顺序 = 配置顺序
-        $orderedCounts = [];
-        foreach ($levels as $level) {
-            $orderedCounts[$level] = $levelCounts[$level] ?? 0;
-        }
-        $orderedCounts['unassigned'] = $levelCounts['unassigned'] ?? 0;
-
-        // methods 过滤 HEAD（与端点元信息、管理器口径一致）
-        $methods = static fn (array $r): array => array_values(array_filter(
-            $r['methods'],
-            fn (string $m) => strtoupper($m) !== 'HEAD',
-        ));
+        // 过滤与 JSON 契约组装（框架无关，SPEC §3.2）在 common RouteAnalyzer
+        $rows    = $analyzer->filterRows($analysis['rows'], $filterLevel, $onlyUnassigned, $onlyAliases);
+        $payload = $analyzer->listPayload($levels, $rows, $analysis['tier_counts'], $warnings, $filterLevel, $onlyUnassigned, $onlyAliases);
 
         // JSON 输出（结构化对象，便于脚本消费；warnings 供 CI/脚本检测别名配置问题）
         if ($asJson) {
-            $this->line(json_encode([
-                'levels' => array_merge($levels, ['unassigned']),
-                'filter' => empty($filterDesc) ? null : $filterDesc,
-                'count'  => count($rows),
-                'tier_counts' => $orderedCounts,
-                'warnings' => $warnings,
-                'routes' => array_map(static fn (array $r): array => [
-                    'name' => $r['name'],
-                    'level' => $r['level'],
-                    'methods' => $methods($r),
-                    'uri' => $r['uri'],
-                    'alias_of' => $r['alias_of'],
-                ], $rows),
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            $this->line(json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
             return 0;
         }
+
+        $orderedCounts = $payload['tier_counts'];
 
         // 层级统计汇总（unassigned 非零是「match 规则漏配」最常见的信号，主动提示）
         $this->line('Tier counts: ' . implode(' | ', array_map(
@@ -161,7 +110,9 @@ class RouteForgeListCommand extends Command
         // 被别名依赖的真实路由名（Name 列绿色标识：改名时需同步更新别名映射）
         $aliasedTargets = array_values(array_unique(array_values($aliases)));
 
-        $tableRows = array_map(function (array $r) use ($aliasedTargets, $methods) {
+        $tableRows = array_map(function (array $r) use ($aliasedTargets) {
+            $methods = static fn (array $row): string => implode('|', RouteAnalyzer::withoutHead($row['methods']));
+
             // 别名整行黄色标识，真实路由行保持默认颜色（仅 table 模式；JSON 输出保持纯文本契约不变）
             if ($r['alias_of'] !== null) {
                 $yellow = static fn (string $cell): string => "<fg=yellow>{$cell}</>";
@@ -169,7 +120,7 @@ class RouteForgeListCommand extends Command
                 return [
                     $yellow($r['name']),
                     $yellow($r['level']),
-                    $yellow(implode('|', $methods($r))),
+                    $yellow($methods($r)),
                     $yellow($r['uri']),
                     $yellow((string) $r['alias_of']),
                 ];
@@ -180,7 +131,7 @@ class RouteForgeListCommand extends Command
             return [
                 $hasAlias ? "<fg=green>{$r['name']}</>" : $r['name'],
                 $r['level'],
-                implode('|', $methods($r)),
+                $methods($r),
                 $r['uri'],
                 '—',
             ];
@@ -194,7 +145,7 @@ class RouteForgeListCommand extends Command
             $tableRows[] = [
                 $red($alias),
                 $red($info['level'] ?? '—'),
-                $red(isset($info['methods']) ? implode('|', $methods($info)) : '—'),
+                $red(isset($info['methods']) ? implode('|', RouteAnalyzer::withoutHead($info['methods'])) : '—'),
                 $red($info['uri'] ?? '—'),
                 $red($target),
             ];
