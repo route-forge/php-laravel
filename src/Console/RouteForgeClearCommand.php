@@ -34,9 +34,9 @@ class RouteForgeClearCommand extends Command
                 return 1;
             }
 
-            $cache->forget($level);
-            // 摘要端点的 route_count 依赖路由数据，清除指定层级后需同步失效摘要缓存
-            $cache->forget('summary');
+            // forgetLevel 封装不变量：层级失效必须同步失效摘要缓存
+            // （摘要的 route_count 依赖层级数据，见 common RouteCache::forgetLevel）
+            $cache->forgetLevel($level);
             $this->info("Route Forge cache cleared for level: {$level} (summary cache invalidated as well)");
         } else {
             $cache->clear();
