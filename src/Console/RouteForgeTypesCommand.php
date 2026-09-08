@@ -29,8 +29,6 @@ class RouteForgeTypesCommand extends Command
 
     protected $description = '生成 TS 路由类型声明（route:forge:types --level=admin --json --out=src/types/forge-routes.d.ts）';
 
-    private const BODY_METHODS = ['POST', 'PUT', 'PATCH'];
-
     public function handle(Router $router, TierResolver $resolver): int
     {
         $levels = array_keys(config('forge.levels', []));
@@ -63,42 +61,11 @@ class RouteForgeTypesCommand extends Command
             return 1;
         }
 
-        // 组装「层级 → 路由名 → 类型约束」的二维映射
-        // 预置全部目标层级（含 0 路由的空层级）：保证 ForgeLevel 联合类型覆盖
-        // 所有已配置层级，前端引用「空层级」的路由名不再因类型缺失而 TS 报错
-        $targets = $filterLevel !== null && $filterLevel !== '' ? [$filterLevel] : $levels;
-        $routesByLevel = array_fill_keys($targets, []);
-
+        // 目标层级：全部已配置层级（--level 时仅该层级），空层级由
+        // TypeGenerator::collectTargets() 预置，保证 ForgeLevel 联合类型完整
         $typeGenerator = new TypeGenerator();
-        foreach ($analysis['rows'] as $r) {
-            // unassigned 路由不生成类型（SPEC §3.2：无层级归属，不进入 ForgeRoutes 映射）；
-            // 别名行已由 analyzer 预生成（跟随目标层级），此处统一过滤即可
-            // 非目标层级（--level 过滤）也跳过：未 isset 的键不能隐式创建，
-            // 否则过滤后 d.ts 仍会出现 client 等层级块
-            if ($r['tier'] === null || !isset($routesByLevel[$r['level']])) {
-                continue;
-            }
-
-            $methods = array_values(array_filter(
-                $r['methods'],
-                fn ($m) => strtoupper($m) !== 'HEAD',
-            ));
-            $method  = !empty($methods) ? strtoupper($methods[0]) : 'GET';
-            $hasBody = in_array($method, self::BODY_METHODS, true);
-
-            // 从 URI 模板提取 URL 可选参数（{param?} 语法）
-            $optionalParams = $typeGenerator->extractOptionalParams($r['uri']);
-
-            $routesByLevel[$r['level']][$r['name']] = [
-                'method'  => $method,
-                'params'  => $r['parameters'],
-                'optionalParams' => $optionalParams,
-                'defaults'       => $r['parameter_defaults'],
-                'hasBody' => $hasBody,
-                // response 始终为 unknown（v1.0 不支持自定义响应类型）
-                'response' => 'unknown',
-            ];
-        }
+        $targets = $filterLevel !== null && $filterLevel !== '' ? [$filterLevel] : $levels;
+        $routesByLevel = $typeGenerator->collectTargets($analysis['rows'], $targets);
 
         // 输出
         if ($this->option('json')) {
