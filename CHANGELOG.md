@@ -5,6 +5,42 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Breaking
+
+- **框架无关核心下沉到 [`route-forge/common`](https://github.com/route-forge/php-common)**：层级解析、别名解析、
+  路由仓库、缓存、TS 类型生成、摘要渲染与异常全部迁入 `RouteForge\Common\`，本包只保留 Laravel 适配层
+  （`src/Adapter/` 桥接 `RouteNormalizerInterface` / `CacheInterface`）。异常与契约接口的 FQCN 随之变化
+  （`RouteForge\Laravel\Exceptions\*` → `RouteForge\Common\Exception\*`，契约 →
+  `RouteForge\Common\Contract\ForgeExceptionContract`），**错误码、`httpStatus()` 与消息文本一字未改**（SPEC §6）。
+  `catch` 具体子类的宿主代码需改用新命名空间；按契约 catch 后读 `code()` 的无需改动。
+- 新增 Composer 依赖 `route-forge/common:^1.0`。
+
+### Fixed
+
+- **别名在目标路由名命中多个层级时不再从视图里消失**：同一个路由名以不同层级重复注册时（改名过渡期的典型手误），
+  别名此前只跟随末次注册层级，`route:forge:list --level=<另一层级>` 与 `route:forge:types` 的 `d.ts` 都缺该条目，
+  而层级端点里两个层级都有这个键——前端按旧名取用会被判 `UnknownRouteName`。现在端点 / list / types / 管理器四处
+  一律跟随目标解析到的每一个层级；`route_count` 与 `tier_counts` 口径不变（一个别名只计一次，记在 `url()`
+  实际解析到的末次注册层级）（SPEC §3.1.7、§3.2）
+- **`@forgeSummary` 内嵌载荷不再把非 ASCII 转成 `\uXXXX`**：内嵌 JSON 编码器补齐 `JSON_UNESCAPED_UNICODE`，
+  与 `Illuminate\Support\Js::from` 逐位对齐。JS 解析结果本就等价，但中文 `levels.*.description` 会让首屏
+  `<head>` 里的载荷体积按字符数成倍膨胀
+- 单层级缓存失效统一经 `RouteCache::forgetLevel()`，「失效一个层级必然同步失效摘要」由不变量保证，
+  不再依赖每个调用方记得额外清 `'summary'` 键
+
+### Changed
+
+- `route:forge:types` 的 stderr 警告集合与 `route:forge:list` 的 `warnings` 对齐：除原有「有 tier 无 name」外，
+  新增别名撞车 / 一名多声明 / 宏与 config 目标冲突 / 路由名跨层级重复注册。产物内容与退出码不变；
+  **重定向产物请勿用 `2>&1` 合并两条流**，否则警告会混进 `d.ts` / `--json` 文件头（SPEC §3.2）
+- 命令一次遍历内的 fail-fast 顺序明确为「先逐条解析路由层级，再解析别名映射」：两类配置错误并存时先报路由侧
+  （`RF_BE_001/002/004/005/006` 优先于 `RF_BE_008`），两者均以退出码 1 结束（SPEC §3.2）
+- `route:forge:list` 对「路由名跨层级重复注册」输出 warning，点名歧义而非静默择一（SPEC §3.1.7）
+- 框架内部路由排除前缀（Laravel 的 `storage.*`）收敛到 `ForgeServiceProvider` 单点声明，
+  命令层不再自行组装过滤器与别名解析器
+
 ## [1.5.0] - 2026-09-08
 
 ### Added

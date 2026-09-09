@@ -465,6 +465,7 @@ Route::get('/admin/members', [MemberController::class, 'index'])
 **行为细节：**
 
 - 别名条目出现在**目标路由所在层级**的端点响应中（含 `unassigned` 特殊层级），元信息（`uri` / `methods` / `parameters` / `parameter_defaults`）与目标路由**完全一致（纯复制，无附加标记字段）**——对前端而言别名就是一个真实存在的路由名，校验与类型推断自然通过，**前端零改动**。
+- **目标路由名被多次注册、命中多个层级时**（典型手误：改名过渡期新旧 URI 共用一个路由名）：别名在**每一个被命中的层级**都出现——层级端点、`route:forge:list`（含 `--level` / `--aliases` 过滤）、`route:forge:types` 的 `d.ts` 与 `--json` 产物、管理器数据四处口径一致，前端在任一层级按旧名取用都不会被判 `UnknownRouteName`。**计数不叠加**：`route_count` / `tier_counts` 仍按「一个别名计一次」记在 `url()` 实际解析到的**末次注册层级**（与 Laravel 的路由名解析行为一致）。该情形属配置歧义，`route:forge:list` 会输出 warning 点名重复注册，不静默择一。
 - 摘要端点 `route_count` 计入别名，与层级端点实际返回的 `routes` 键数量保持一致。
 - `route:forge:types` 为别名生成与目标一致的类型条目，TS 侧旧名仍合法。
 - `route:forge:list` 显示别名条目（`alias_of` 字段 / `Alias Of` 列，见 §3.2），支持 `--aliases` 过滤。
@@ -558,10 +559,11 @@ php artisan route:forge:list --aliases
 - `--unassigned` 仅显示未命中任何层级的路由，与 `--level=unassigned` 等价。
 - 未分配路由在 table 输出中以 `unassigned` 显示（与 JSON 输出及特殊层级名保持一致）。
 - 表格上方输出**层级统计汇总行**（`Tier counts: ...`，含 0 路由的层级与 `unassigned`；计数在过滤前统计，别名跟随目标层级计入，与摘要 `route_count` 口径一致）。`unassigned` 非零时追加 warn 提示检查 match 规则或补显式 tier。
-- 路由解析抛出 Forge 异常（`RF_BE_001` 等）时输出 `[错误码] 消息` 并以退出码 1 结束，不打印堆栈。
+- 路由解析抛出 Forge 异常（`RF_BE_001` 等）时输出 `[错误码] 消息` 并以退出码 1 结束，不打印堆栈。**一次遍历内的 fail-fast 顺序**：先逐条解析路由层级（`RF_BE_001` / `002` / `004` / `005` / `006`），再解析别名映射（`RF_BE_008` 悬空别名）；两类问题并存时先报路由侧错误——修掉路由归属后别名问题会在同一次运行里接着暴露。
 - 「有 tier 无 name」的路由（§3.1.4）在 table 模式输出 warning 行、JSON 模式合入 `warnings`——该类路由无法进入任何元信息，命令层直接暴露避免静默消失。
-- 警告（别名撞车 / tier 无 name）在**任何过滤结果下都输出**：过滤后 0 行早退时同样可见。
-- 别名条目（§3.1.7）跟随目标路由的层级与过滤条件显示，`Alias Of` 列（JSON 中为 `alias_of` 字段）标注指向的真实路由名；别名撞车被忽略等非致命问题以 warnings 提示（table 模式在表格前输出警告行）。
+- `warnings` 覆盖的非致命配置问题：**别名撞车（真实路由优先）/ 同一别名在多条路由上重复声明 / 宏与 config 指向不同目标 / 路由名跨层级重复注册（§3.1.7）/ 有 tier 无 name**。
+- 警告在任何过滤结果下都输出：过滤后 0 行早退时同样可见。
+- 别名条目（§3.1.7）跟随目标路由解析到的**每一个**层级与过滤条件显示（目标名重复注册命中多层级时逐层级出行），`Alias Of` 列（JSON 中为 `alias_of` 字段）标注指向的真实路由名；撞车被忽略等非致命问题以 warnings 提示（table 模式在表格前输出警告行）。
 
 ##### `--json` 输出结构
 
@@ -636,8 +638,8 @@ php artisan route:forge:types --json
 - `ForgeLevel` 联合类型覆盖**所有已配置层级**（含 0 路由的空层级，映射中输出空对象块），前端引用空层级名不会 TS 报错；`--level` 过滤时仅含该层级。
 - `--json` 输出中空层级序列化为 `{}`（与「按路由名索引的对象」契约一致，不会出现 `[]`）。
 - d.ts 文件头「端点」注释取实际 `endpoint_prefix`（经与端点注册相同的规范化）。
-- 「有 tier 无 name」的路由输出 warning 到 **stderr**（stdout 即 d.ts 产物本身，警告不混入重定向产物）。
-- 路由解析抛出 Forge 异常（`RF_BE_001` 等）时输出 `[错误码] 消息` 并以退出码 1 结束，不打印堆栈。
+- 警告输出到 **stderr**，集合与 `route:forge:list` 的 `warnings` 同源（别名撞车 / 一名多声明 / 宏与 config 目标冲突 / 路由名跨层级重复注册 / 有 tier 无 name，见上文）；stdout 即 d.ts / `--json` 产物本身，因此重定向产物请用 `php artisan route:forge:types --out=...` 或 `> file`，**不要用 `2>&1` 合并两条流**，否则警告会混进文件头。
+- 路由解析抛出 Forge 异常（`RF_BE_001` 等）时输出 `[错误码] 消息` 并以退出码 1 结束，不打印堆栈；一次遍历内的 fail-fast 顺序与 `route:forge:list` 一致（先路由层级解析，后别名映射解析）。
 
 生成结果示例（d.ts）：
 
@@ -861,6 +863,8 @@ PUT /_forge/manager/api/config   # 更新配置文件
 ## 6. 错误码
 
 所有 Route Forge 抛出的异常都实现 `ForgeExceptionContract` 契约，提供 `code()`（错误码）与 `httpStatus()`（对应 HTTP 状态码）方法，便于调用方 catch 后统一处理与错误响应映射。
+
+> **命名空间迁移（v2.0.0 起）**：框架无关核心下沉到 `route-forge/common` 后，下表异常类位于 `RouteForge\Common\Exception\`，契约接口位于 `RouteForge\Common\Contract\ForgeExceptionContract`；v1.x 的 `RouteForge\Laravel\Exceptions\` 不再存在。**错误码、`httpStatus()`、消息文本均未变化**，只有 FQCN 变了。宿主代码里 `catch` 具体子类的地方需改用新命名空间；只按契约 catch（`catch (ForgeExceptionContract $e)` 后读 `code()`）的代码无需改动——这也是推荐的捕获方式。
 
 | 错误类                                  | code        | 触发场景                                                                | HTTP 状态 |
 |-----------------------------------------|-------------|-------------------------------------------------------------------------|-----------|
