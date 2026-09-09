@@ -15,7 +15,7 @@
   （`RouteForge\Laravel\Exceptions\*` → `RouteForge\Common\Exception\*`，契约 →
   `RouteForge\Common\Contract\ForgeExceptionContract`），**错误码、`httpStatus()` 与消息文本一字未改**（SPEC §6）。
   `catch` 具体子类的宿主代码需改用新命名空间；按契约 catch 后读 `code()` 的无需改动。
-- 新增 Composer 依赖 `route-forge/common:^1.0`。
+- 新增 Composer 依赖 `route-forge/common:^1.1`（层级铺开的别名可见性与 `@forgeSummary` 非 ASCII 两项修复自 1.1 起）。
 
 ### Fixed
 
