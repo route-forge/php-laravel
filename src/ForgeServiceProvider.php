@@ -68,6 +68,15 @@ use RouteForge\Laravel\Http\RouteMetadataController;
  */
 class ForgeServiceProvider extends ServiceProvider
 {
+    /**
+     * Laravel 框架内部路由前缀（非用户业务路由），全包唯一声明处。
+     *
+     * Laravel 12+ 的 FilesystemServiceProvider 会为启用 serve 的磁盘注册
+     * storage.{disk} 与 storage.{disk}.upload 命名路由，它们与用户路由同表；
+     * 不排除会污染 list / types / 管理器 / unassigned，并在 strict_mode 下必然 500。
+     */
+    private const LARAVEL_INTERNAL_ROUTE_PREFIXES = ['storage.'];
+
     public function boot(): void
     {
         $this->registerTierMacro();
@@ -216,12 +225,18 @@ class ForgeServiceProvider extends ServiceProvider
             );
         });
 
+        // 路由名排除过滤器：common 默认排除（forge 自身端点）+ Laravel 框架内部路由。
+        // 单点声明并注册为容器单例——命令层分析器与路由仓库共用同一实例，
+        // 杜绝「同一排除规则在多处各写一遍」的漂移（AGENTS.md 红线）。
+        $this->app->singleton(RouteNameFilter::class, fn (): RouteNameFilter => RouteNameFilter::withExtraPrefixes(
+            self::LARAVEL_INTERNAL_ROUTE_PREFIXES,
+        ));
+
         // RouteAnalyzer：命令层（list / types）共用的分析器，已按 forge 配置接线。
-        // Laravel 特有的框架内部路由前缀（storage.*）在此单点声明——
-        // 命令层禁止自行构造 filter / AliasResolver，避免排除规则多处漂移。
+        // 命令层禁止自行构造 filter / AliasResolver，排除规则一律取自上面的单点绑定。
         $this->app->singleton(RouteAnalyzer::class, function ($app) {
             /** @var Container $app */
-            $filter = RouteNameFilter::withExtraPrefixes(['storage.']);
+            $filter = $app->make(RouteNameFilter::class);
 
             return new RouteAnalyzer(
                 tierResolver: $app->make(CommonTierResolver::class),
@@ -234,7 +249,6 @@ class ForgeServiceProvider extends ServiceProvider
         });
 
         // RouteRepository：组合 router 路由集合 + normalizer + tierResolver + cache + 配置。
-        // 排除前缀 = common 默认（forge 自身端点）+ Laravel 框架内部路由（storage.*）。
         $this->app->singleton(CommonRouteRepository::class, function ($app) {
             /** @var Container $app */
             return new CommonRouteRepository(
@@ -251,7 +265,7 @@ class ForgeServiceProvider extends ServiceProvider
                     'cache_ttl'       => $app->make('config')->get('forge.cache_ttl'),
                     'scheme_version'  => $app->make('config')->get('forge.scheme_version', CommonRouteRepository::SCHEME_VERSION),
                 ],
-                filter: RouteNameFilter::withExtraPrefixes(['storage.']),
+                filter: $app->make(RouteNameFilter::class),
             );
         });
     }
