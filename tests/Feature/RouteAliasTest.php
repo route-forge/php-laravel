@@ -26,6 +26,8 @@ use Symfony\Component\Console\Output\BufferedOutput;
  *  10. route:forge:types 为别名生成类型条目
  *  11. route:forge:list 别名行 / --aliases 过滤 / warnings
  *  12. 宏基本校验（空参数抛 InvalidArgumentException）
+ *  13. 目标路由名跨层级重复注册时：别名在每个解析层级都可见（端点 / list / d.ts），
+ *     并给出重复注册警告；计数口径仍与摘要 route_count 一致
  */
 class RouteAliasTest extends TestCase
 {
@@ -351,5 +353,111 @@ class RouteAliasTest extends TestCase
         $out = json_decode($buffer->fetch(), true, flags: JSON_THROW_ON_ERROR);
         $found = array_filter($out['warnings'], fn (string $w) => str_contains($w, 'declared via ->forgeAlias() on multiple routes'));
         $this->assertNotEmpty($found);
+    }
+
+    /**
+     * 跑 route:forge:list --json 并解码为数组。
+     *
+     * @param array<string, mixed> $options 额外选项（如 ['--level' => 'admin']）
+     *
+     * @return array<string, mixed>
+     */
+    private function listJson(array $options = []): array
+    {
+        $buffer = new BufferedOutput();
+        $exit = $this->app->make(Kernel::class)->call('route:forge:list', $options + ['--json' => true], $buffer);
+        $this->assertSame(0, $exit, 'route:forge:list 应成功退出');
+
+        return json_decode($buffer->fetch(), true, flags: JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * 解析 route:forge:types --json 的产物。
+     *
+     * 警告写 stderr，而 Kernel::call 注入的是单一 BufferedOutput（没有独立错误流），
+     * 因此测试里警告会排在 JSON 前面——真实终端下 `> out.json` 两者天然分离，
+     * 这里只剥离前导警告行。
+     *
+     * @return array<string, mixed>
+     */
+    private function decodeTypesJson(string $raw): array
+    {
+        $start = strpos($raw, '{');
+        $this->assertNotFalse($start, 'types --json 应产出 JSON 对象');
+
+        return json_decode(substr($raw, $start), true, flags: JSON_THROW_ON_ERROR);
+    }
+
+    public function test_alias_is_visible_in_every_tier_its_target_resolves_to(): void
+    {
+        // 同一个路由名以不同层级注册两次（改名过渡期的典型手误）：别名必须跟随
+        // target 出现在它解析到的每个层级——否则端点里有该键、d.ts 与 --level 视图
+        // 却没有，前端按旧名取用会被判 UnknownRouteName。
+        config(['forge.aliases' => ['legacy.members' => 'admin.members.index']]);
+
+        RouteFacade::get('/admin/members', static function () {})
+            ->name('admin.members.index')
+            ->tier('admin');
+        RouteFacade::get('/client/members-export', static function () {})
+            ->name('admin.members.index'); // 无显式 tier，靠 match.prefix=client 落到 client
+
+        // 端点侧：两个层级都注入别名键（既有契约，锁死防回归）
+        $this->assertArrayHasKey('legacy.members', $this->get($this->endpoint('admin'))->json('routes'));
+        $this->assertArrayHasKey('legacy.members', $this->get($this->endpoint('client'))->json('routes'));
+
+        // list --level：别名行在各自层级可见
+        $this->assertContains(
+            'legacy.members',
+            array_column($this->listJson(['--level' => 'admin'])['routes'], 'name')
+        );
+        $this->assertContains(
+            'legacy.members',
+            array_column($this->listJson(['--level' => 'client'])['routes'], 'name')
+        );
+
+        // 重复注册本身是配置歧义，必须显式警告而非静默挑一个
+        $warn = array_filter(
+            $this->listJson()['warnings'],
+            fn (string $w): bool => str_contains($w, 'Route name [admin.members.index] is registered 2 times')
+        );
+        $this->assertNotEmpty($warn);
+    }
+
+    public function test_alias_counting_and_types_stay_consistent_with_duplicate_target_name(): void
+    {
+        config(['forge.aliases' => ['legacy.members' => 'admin.members.index']]);
+
+        RouteFacade::get('/admin/members', static function () {})
+            ->name('admin.members.index')
+            ->tier('admin');
+        RouteFacade::get('/client/members-export', static function () {})
+            ->name('admin.members.index');
+
+        // 计数口径不变：一个别名只计一次，计在末次注册层级（与摘要 route_count 同源）
+        $counts = $this->listJson()['tier_counts'];
+        $this->assertSame(1, $counts['admin']);
+        $this->assertSame(2, $counts['client']);
+
+        $levels = $this->get($this->summaryEndpoint())->json('levels');
+        $this->assertSame(1, $levels['admin']['route_count']);
+        $this->assertSame(2, $levels['client']['route_count']);
+
+        // d.ts 类型条目按层级铺开：两个层级都能用旧名取到类型
+        $buffer = new BufferedOutput();
+        $exit = $this->app->make(Kernel::class)->call('route:forge:types', ['--json' => true], $buffer);
+        $this->assertSame(0, $exit);
+        $types = $this->decodeTypesJson($buffer->fetch());
+
+        $this->assertArrayHasKey('legacy.members', $types['admin']);
+        $this->assertArrayHasKey('legacy.members', $types['client']);
+        // 别名的类型约束与目标路由完全一致（SPEC §3.1.7 的「纯复制」）
+        $this->assertSame($types['admin']['admin.members.index'], $types['admin']['legacy.members']);
+
+        // --level 单层级收集时别名同样在产物里
+        $buffer = new BufferedOutput();
+        $this->app->make(Kernel::class)->call('route:forge:types', ['--level' => 'admin', '--json' => true], $buffer);
+        $only = $this->decodeTypesJson($buffer->fetch());
+        $this->assertArrayHasKey('legacy.members', $only['admin']);
+        $this->assertArrayNotHasKey('client', $only);
     }
 }
