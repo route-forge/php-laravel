@@ -200,15 +200,16 @@ php artisan route:forge:clear
 
 ## 开发
 
-本包依赖框架无关核心 [`route-forge/common`](https://github.com/route-forge/php-common)。本地开发通过**不入版本库**的 `composer.local.json`（path repository → `../route-forge-common`）串联两个仓库；`composer.json` 本身保持干净，可直接发布。
+本包依赖框架无关核心 [`route-forge/common`](https://github.com/route-forge/php-common)，`composer install` 默认从 Packagist 解析。若要针对**尚未发版**的核心改动联调，临时把 Composer 指向同级检出目录，提交前再剥离——入库的 `composer.json` 始终可发布：
 
 ```bash
-# 本地开发（path repository 指向 ../route-forge-common）
-COMPOSER=composer.local.json composer install
-COMPOSER=composer.local.json composer update
+# 仅本地临时生效（同级检出位于 ../php-common）
+composer config repositories.common '{"type":"path","url":"../php-common","options":{"symlink":true,"versions":{"route-forge/common":"1.1.0"}}}'
+composer update route-forge/common
 
-# route-forge/common 发布到 Packagist 后，直接
-composer install
+# ……跑完测试后、提交前剥离该仓库段
+composer config repositories.common --unset
+git diff composer.json          # repositories 段必须已消失
 
 composer test            # 运行 PHPUnit 测试套件
 composer test:coverage   # 文本覆盖率报告

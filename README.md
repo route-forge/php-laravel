@@ -200,15 +200,16 @@ This repository ships the **`route-forge/laravel` composer package** (the backen
 
 ## Development
 
-This package depends on the framework-agnostic core [`route-forge/common`](https://github.com/route-forge/php-common). Locally the two repos are wired via a git-ignored `composer.local.json` (path repository → `../route-forge-common`); `composer.json` itself stays clean for publishing.
+This package depends on the framework-agnostic core [`route-forge/common`](https://github.com/route-forge/php-common), resolved from Packagist by plain `composer install`. To develop against an *unpublished* core, temporarily point Composer at a sibling checkout and strip it before committing — the `composer.json` in git stays publishable:
 
 ```bash
-# local development (path repository to ../route-forge-common)
-COMPOSER=composer.local.json composer install
-COMPOSER=composer.local.json composer update
+# temporary, local only (sibling checkout at ../php-common)
+composer config repositories.common '{"type":"path","url":"../php-common","options":{"symlink":true,"versions":{"route-forge/common":"1.1.0"}}}'
+composer update route-forge/common
 
-# once route-forge/common is published to Packagist, plain
-composer install
+# ... run the suite, then drop the repository before committing
+composer config repositories.common --unset
+git diff composer.json          # repositories block must be gone
 
 composer test            # run the PHPUnit suite
 composer test:coverage   # text coverage report
