@@ -497,16 +497,17 @@ Route::get('/admin/members', [MemberController::class, 'index'])
 指令输出一段 `<script>`，以**一次性、消费即自删、不可枚举**的 `window` 访问器暴露摘要：
 
 ```html
+
 <script>
-Object.defineProperty(window, '__ROUTE_FORGE__', {
-  configurable: true,
-  enumerable: false,
-  get: function () {
-    var v = JSON.parse('…');   // 摘要 JSON，经 Js::from 做 script-safe 转义
-    delete window.__ROUTE_FORGE__;
-    return v;
-  }
-});
+  Object.defineProperty(window, '__ROUTE_FORGE__', {
+    configurable: true,
+    enumerable: false,
+    get: function () {
+      const v = JSON.parse('…');   // 摘要 JSON，经 Js::from 做 script-safe 转义
+      delete window.__ROUTE_FORGE__;
+      return v;
+    }
+  });
 </script>
 ```
 
@@ -846,25 +847,25 @@ PUT /_forge/manager/api/config   # 更新配置文件
 
 ## 5. 配置项参考
 
-| 键                                     | 类型                         | 默认值             | 说明                                                                                                                                                                                              |
-|----------------------------------------|------------------------------|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `levels`                               | `array<string, LevelConfig>` | 见 3.1.2           | 层级定义表，键为层级名（自定义），值为该层级的匹配规则与缓存策略                                                                                                                                  |
-| `levels.{name}.description`            | `string`                     | `''`               | 层级描述，仅用于文档与调试输出                                                                                                                                                                    |
-| `levels.{name}.match.prefix`           | `string[]\|string`                   | `[]`               | URI 前缀匹配列表，命中任一即归入此层级；单个字符串等价于只含它的数组（common ≥ 1.1.1）                                                                                                                                                            |
-| `levels.{name}.match.middleware`       | `string[]\|string`                   | `[]`               | 中间件匹配列表，匹配逻辑受 `middleware_match` 控制；同样接受单个字符串（common ≥ 1.1.1）                                                                                                                                                |
-| `levels.{name}.match.middleware_match` | `string\|array`              | `'any'`            | 中间件匹配模式：`'any'`（OR）/ `'all'`（AND）/ DNF 数组（见 §3.1.2 中间件匹配模式）                                                                                                               |
-| `levels.{name}.load`                   | `'eager'\|'lazy'`            | `'lazy'`           | 是否在摘要端点中标记为「前端应预加载」；前端自动发现时据此决定预加载策略                                                                                                                          |
-| `levels.{name}.endpoint_middleware`    | `string[]\|string\|null`             | `[]`               | 访问该层级元信息端点（`GET /{endpoint_prefix}/{level}`）时要求的中间件列表；未配置/空数组/null 则不限制；与 `->middleware()` 同形，接受单个字符串                                                                                                |
-| `endpoint_prefix`                      | `string`                     | `'/_forge/routes'` | 路由元信息对外端点前缀（同时用于层级端点和摘要端点）                                                                                                                                              |
-| `url_prefix`                           | `string\|null`               | `null`             | 应用的路由前缀，通过摘要端点 `config.url_prefix` 下发。支持完整 URL（含协议域名）或仅路径前缀；`null` 或空字符串 = 不下发                                                                         |
-| `endpoint_middleware`                  | `string[]\|string\|null`                   | `[]`               | 摘要端点（`GET /{endpoint_prefix}`）中间件；单个字符串等价于只含它的数组；空数组或 null 不限制                                                                                                                                  |
-| `cache_ttl`                            | `int\|null`                  | `3600`             | 统一缓存 TTL（秒）；`null` 不缓存，`0` 永久缓存，负值视为 `null`（不缓存）。同时作用于所有层级端点与摘要端点。⚠️ `0` 遵循 Laravel Cache TTL 惯例（永久），非 HTTP `Cache-Control: max-age=0` 含义 |
-| `cache_driver`                         | `string\|null`               | `null`             | 缓存驱动；`null` 用默认驱动，可指定 `redis`/`file`/`array` 等                                                                                                                                     |
-| `strict_mode`                          | `bool`                       | `false`            | 严格模式；未命中层级时抛异常（true）或归入 `unassigned` 特殊层级（false）                                                                                                                         |
-| `scheme_version`                       | `int`                        | `1`                | 摘要端点返回的响应格式版本号（`schemeVersion` 字段）；后续迭代引入不兼容的格式变更时递增，前端据此做版本兼容                                                                                      |
-| `classifier`                           | `callable\|null`             | `null`             | 自定义分类回调，签名 `fn(Route $r): ?string`，返回层级名或 null。返回的层级名必须在 `levels` 配置中存在，否则抛 `UnknownClassifierTierException`                                                  |
-| `aliases`                              | `array<string, string>`      | `[]`               | 路由别名映射表（见 §3.1.7）：键=别名（旧路由名），值=真实路由名（新名）。与 `->forgeAlias()` 宏并用时宏优先；悬空别名抛 `AliasTargetException`                                                     |
-| `manager_allowed_ips`                  | `string[]\|null`             | `['127.0.0.1', '::1']` | 管理器页面 IP 白名单（仅 `APP_DEBUG=true` 有意义，线上不注册管理器路由可无视）：精确匹配来源 IP，`'*'` 放行任意来源，`null`/空数组不做限制                                                          |
+| 键                                     | 类型                         | 默认值                 | 说明                                                                                                                                                                                              |
+|----------------------------------------|------------------------------|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `levels`                               | `array<string, LevelConfig>` | 见 3.1.2               | 层级定义表，键为层级名（自定义），值为该层级的匹配规则与缓存策略                                                                                                                                  |
+| `levels.{name}.description`            | `string`                     | `''`                   | 层级描述，仅用于文档与调试输出                                                                                                                                                                    |
+| `levels.{name}.match.prefix`           | `string[]\|string`           | `[]`                   | URI 前缀匹配列表，命中任一即归入此层级；单个字符串等价于只含它的数组（common ≥ 1.1.1）                                                                                                            |
+| `levels.{name}.match.middleware`       | `string[]\|string`           | `[]`                   | 中间件匹配列表，匹配逻辑受 `middleware_match` 控制；同样接受单个字符串（common ≥ 1.1.1）                                                                                                          |
+| `levels.{name}.match.middleware_match` | `string\|array`              | `'any'`                | 中间件匹配模式：`'any'`（OR）/ `'all'`（AND）/ DNF 数组（见 §3.1.2 中间件匹配模式）                                                                                                               |
+| `levels.{name}.load`                   | `'eager'\|'lazy'`            | `'lazy'`               | 是否在摘要端点中标记为「前端应预加载」；前端自动发现时据此决定预加载策略                                                                                                                          |
+| `levels.{name}.endpoint_middleware`    | `string[]\|string\|null`     | `[]`                   | 访问该层级元信息端点（`GET /{endpoint_prefix}/{level}`）时要求的中间件列表；未配置/空数组/null 则不限制；与 `->middleware()` 同形，接受单个字符串                                                 |
+| `endpoint_prefix`                      | `string`                     | `'/_forge/routes'`     | 路由元信息对外端点前缀（同时用于层级端点和摘要端点）                                                                                                                                              |
+| `url_prefix`                           | `string\|null`               | `null`                 | 应用的路由前缀，通过摘要端点 `config.url_prefix` 下发。支持完整 URL（含协议域名）或仅路径前缀；`null` 或空字符串 = 不下发                                                                         |
+| `endpoint_middleware`                  | `string[]\|string\|null`     | `[]`                   | 摘要端点（`GET /{endpoint_prefix}`）中间件；单个字符串等价于只含它的数组；空数组或 null 不限制                                                                                                    |
+| `cache_ttl`                            | `int\|null`                  | `3600`                 | 统一缓存 TTL（秒）；`null` 不缓存，`0` 永久缓存，负值视为 `null`（不缓存）。同时作用于所有层级端点与摘要端点。⚠️ `0` 遵循 Laravel Cache TTL 惯例（永久），非 HTTP `Cache-Control: max-age=0` 含义 |
+| `cache_driver`                         | `string\|null`               | `null`                 | 缓存驱动；`null` 用默认驱动，可指定 `redis`/`file`/`array` 等                                                                                                                                     |
+| `strict_mode`                          | `bool`                       | `false`                | 严格模式；未命中层级时抛异常（true）或归入 `unassigned` 特殊层级（false）                                                                                                                         |
+| `scheme_version`                       | `int`                        | `1`                    | 摘要端点返回的响应格式版本号（`schemeVersion` 字段）；后续迭代引入不兼容的格式变更时递增，前端据此做版本兼容                                                                                      |
+| `classifier`                           | `callable\|null`             | `null`                 | 自定义分类回调，签名 `fn(Route $r): ?string`，返回层级名或 null。返回的层级名必须在 `levels` 配置中存在，否则抛 `UnknownClassifierTierException`                                                  |
+| `aliases`                              | `array<string, string>`      | `[]`                   | 路由别名映射表（见 §3.1.7）：键=别名（旧路由名），值=真实路由名（新名）。与 `->forgeAlias()` 宏并用时宏优先；悬空别名抛 `AliasTargetException`                                                    |
+| `manager_allowed_ips`                  | `string[]\|null`             | `['127.0.0.1', '::1']` | 管理器页面 IP 白名单（仅 `APP_DEBUG=true` 有意义，线上不注册管理器路由可无视）：精确匹配来源 IP，`'*'` 放行任意来源，`null`/空数组不做限制                                                        |
 
 ## 6. 错误码
 
@@ -872,31 +873,31 @@ PUT /_forge/manager/api/config   # 更新配置文件
 
 > **命名空间迁移（v2.0.0 起）**：框架无关核心下沉到 `route-forge/common` 后，下表异常类位于 `RouteForge\Common\Exception\`，契约接口位于 `RouteForge\Common\Contract\ForgeExceptionContract`；v1.x 的 `RouteForge\Laravel\Exceptions\` 不再存在。**错误码、`httpStatus()`、消息文本均未变化**，只有 FQCN 变了。宿主代码里 `catch` 具体子类的地方需改用新命名空间；只按契约 catch（`catch (ForgeExceptionContract $e)` 后读 `code()`）的代码无需改动——这也是推荐的捕获方式。
 
-| 错误类                                  | code        | 触发场景                                                                | HTTP 状态 |
-|-----------------------------------------|-------------|-------------------------------------------------------------------------|-----------|
-| `RouteTierNotAssignedException`         | `RF_BE_001` | `strict_mode=true` 且路由未命中任何层级                                 | 500       |
-| `UnknownLevelException`                 | `RF_BE_002` | 请求的层级名不在 `levels` 配置中                                        | 404       |
-| `CacheDriverException`                  | `RF_BE_003` | 指定的 `cache_driver` 不可用                                            | 500       |
-| `ClassifierException`                   | `RF_BE_004` | `classifier` 回调抛错                                                   | 500       |
-| `RouteMissingNameException`             | `RF_BE_005` | `strict_mode=true` 且路由设置了 tier 但没有路由名                       | 500       |
-| `UnknownClassifierTierException`        | `RF_BE_006` | `classifier` 返回的层级名不在 `levels` 配置中                           | 500       |
-| `DiscardedRegistrarAttributesException` | `RF_BE_007` | 尾部链式属性被丢弃（`Route::group(...)->tier(...)`）：自 v1.4.x 起不再自动抛出，改为日志告警（`strict_mode=true` 记 `error`、默认记 `warning`），异常类保留供兼容 | — |
-| `AliasTargetException`                  | `RF_BE_008` | 别名指向的路由名不存在（悬空别名，见 §3.1.7）                          | 500       |
+| 错误类                                  | code        | 触发场景                                                                                                                                                          | HTTP 状态 |
+|-----------------------------------------|-------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
+| `RouteTierNotAssignedException`         | `RF_BE_001` | `strict_mode=true` 且路由未命中任何层级                                                                                                                           | 500       |
+| `UnknownLevelException`                 | `RF_BE_002` | 请求的层级名不在 `levels` 配置中                                                                                                                                  | 404       |
+| `CacheDriverException`                  | `RF_BE_003` | 指定的 `cache_driver` 不可用                                                                                                                                      | 500       |
+| `ClassifierException`                   | `RF_BE_004` | `classifier` 回调抛错                                                                                                                                             | 500       |
+| `RouteMissingNameException`             | `RF_BE_005` | `strict_mode=true` 且路由设置了 tier 但没有路由名                                                                                                                 | 500       |
+| `UnknownClassifierTierException`        | `RF_BE_006` | `classifier` 返回的层级名不在 `levels` 配置中                                                                                                                     | 500       |
+| `DiscardedRegistrarAttributesException` | `RF_BE_007` | 尾部链式属性被丢弃（`Route::group(...)->tier(...)`）：自 v1.4.x 起不再自动抛出，改为日志告警（`strict_mode=true` 记 `error`、默认记 `warning`），异常类保留供兼容 |
+| `AliasTargetException`                  | `RF_BE_008` | 别名指向的路由名不存在（悬空别名，见 §3.1.7）                                                                                                                     | 500       |
 
 ## 7. 测试矩阵
 
-| 测试维度     | 覆盖点                                                                                                                                 |
-|--------------|----------------------------------------------------------------------------------------------------------------------------------------|
-| 层级分配     | 显式 `->tier()`、资源路由（resource/apiResource/singleton/apiSingleton）tier 与 `->only()` 组合、配置 match、`Route::group`（数组/链式）透传、classifier（含返回非串降级、抛错包装为 ClassifierException）、unassigned 兜底、优先级覆盖、**多层级同时命中取最后一个** |
-| 路由别名     | `->forgeAlias()` 宏（单个/多个/空参报错）、config `aliases`、**宏优先于 config**、别名与真实路由名撞车忽略（list warnings）、悬空别名 RF_BE_008、别名元信息与目标纯复制一致、跟随目标层级（含 unassigned）、摘要 `route_count` 计入别名、`route:forge:types` 别名条目、`route:forge:list --aliases` 过滤、别名随扫描缓存 |
-| Artisan 命令 | `route:forge:list` 输出格式（table/json）、按层级过滤、unassigned 路由显示、`--level` 参数过滤                                         |
-| Artisan 命令 | `route:forge:types` 生成 d.ts 二级结构（层级 → 路由名）、`--level` 过滤、`--json` 二级 JSON 输出、`--out` 写文件                       |
-| Artisan 命令 | `route:forge:clear` 全量清除缓存、按层级清除、无效层级名报错                                                                           |
-| 中间件匹配   | `middleware_match` 简单模式（any/all）、高级模式（DNF 数组）、边界情况（空数组、单元素、**越界索引、空子句跳过、未知模式降级为 any**）；prefix **按段匹配**（`admin` 不命中 `administrator`） |
-| 端点响应     | `/_forge/routes/{level}` 返回结构、`/_forge/routes` 摘要端点返回结构、层级+摘要**缓存命中**、未声明层级 404、层级端点中间件保护、摘要端点中间件保护、**自定义 `endpoint_prefix` 注册与规范化**、`parameter_defaults` 空值序列化为 `{}`、**空层级 `routes` 序列化为 `{}`** |
-| 严格模式     | `strict_mode=true` 未命中抛异常、`false` 未命中归入 unassigned 特殊层级、**包自身路由豁免严格校验（全部用户路由已分配时端点 200）** |
-| Laravel 兼容 | CI（GitHub Actions）跑 PHP 8.2–8.5 × Laravel 11/12/13 矩阵（排除 PHP 8.2 × Laravel 13 组合）；资源路由、嵌套 group、链式语法、Router 重绑共享 RouteCollection |
-| 缓存         | `array`/`file` 驱动（store 无关，`redis` 复用同一 `Repository` 接口，无专属逻辑）、TTL 正数过期、手动失效、`0` 永久缓存、`cache_ttl=null` 不缓存、keys 索引清理、debug 模式跳过读写 |
+| 测试维度     | 覆盖点                                                                                                                                                                                                                                                                                                                              |
+|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 层级分配     | 显式 `->tier()`、资源路由（resource/apiResource/singleton/apiSingleton）tier 与 `->only()` 组合、配置 match、`Route::group`（数组/链式）透传、classifier（含返回非串降级、抛错包装为 ClassifierException）、unassigned 兜底、优先级覆盖、**多层级同时命中取最后一个**                                                               |
+| 路由别名     | `->forgeAlias()` 宏（单个/多个/空参报错）、config `aliases`、**宏优先于 config**、别名与真实路由名撞车忽略（list warnings）、悬空别名 RF_BE_008、别名元信息与目标纯复制一致、跟随目标层级（含 unassigned）、摘要 `route_count` 计入别名、`route:forge:types` 别名条目、`route:forge:list --aliases` 过滤、别名随扫描缓存            |
+| Artisan 命令 | `route:forge:list` 输出格式（table/json）、按层级过滤、unassigned 路由显示、`--level` 参数过滤                                                                                                                                                                                                                                      |
+| Artisan 命令 | `route:forge:types` 生成 d.ts 二级结构（层级 → 路由名）、`--level` 过滤、`--json` 二级 JSON 输出、`--out` 写文件                                                                                                                                                                                                                    |
+| Artisan 命令 | `route:forge:clear` 全量清除缓存、按层级清除、无效层级名报错                                                                                                                                                                                                                                                                        |
+| 中间件匹配   | `middleware_match` 简单模式（any/all）、高级模式（DNF 数组）、边界情况（空数组、单元素、**越界索引、空子句跳过、未知模式降级为 any**）；prefix **按段匹配**（`admin` 不命中 `administrator`）                                                                                                                                       |
+| 端点响应     | `/_forge/routes/{level}` 返回结构、`/_forge/routes` 摘要端点返回结构、层级+摘要**缓存命中**、未声明层级 404、层级端点中间件保护、摘要端点中间件保护、**自定义 `endpoint_prefix` 注册与规范化**、`parameter_defaults` 空值序列化为 `{}`、**空层级 `routes` 序列化为 `{}`**                                                           |
+| 严格模式     | `strict_mode=true` 未命中抛异常、`false` 未命中归入 unassigned 特殊层级、**包自身路由豁免严格校验（全部用户路由已分配时端点 200）**                                                                                                                                                                                                 |
+| Laravel 兼容 | CI（GitHub Actions）跑 PHP 8.2–8.5 × Laravel 11/12/13 矩阵（排除 PHP 8.2 × Laravel 13 组合）；资源路由、嵌套 group、链式语法、Router 重绑共享 RouteCollection                                                                                                                                                                       |
+| 缓存         | `array`/`file` 驱动（store 无关，`redis` 复用同一 `Repository` 接口，无专属逻辑）、TTL 正数过期、手动失效、`0` 永久缓存、`cache_ttl=null` 不缓存、keys 索引清理、debug 模式跳过读写                                                                                                                                                 |
 | 管理器页面   | `GET /_forge/manager` 页面渲染、`/api/routes`（含 forge 自身路由过滤与 unassigned 归属）、`/api/config` 读取、配置生成器层级名转义（`php -l` 实测防注入）与**不可编辑项（`endpoint_middleware` / `manager_allowed_ips`）保存透传**、**IP 白名单（默认仅回环、局域网 IP 精确匹配、`*` 放行、空值不限制）**；仅 `APP_DEBUG=true` 注册 |
 
 ## 8. 版本与发布
