@@ -116,6 +116,12 @@ return [
 
 - `prefix`：路由 URI 命中任意一个前缀即归入此层级（支持多个）。
 - `middleware`：路由中间件集合按 `middleware_match` 规则匹配（详见下方「中间件匹配模式」）。
+- **类型归一化（依赖 `route-forge/common` ≥ 1.1.1）**：`prefix` 与 `middleware` 除数组外**也接受单个字符串**
+  （或标量），等价于只含该值的单元素数组；`null` 与缺键等价于空数组。归一化**不改变任何匹配语义**——
+  空字符串仍按「空前缀」跳过，不会命中所有路由。在此之前写成 `'prefix' => 'admin'` 会在层级解析时抛
+  `count(): Argument #1 ($value) must be of type Countable|array, string given` 并让元信息端点 500。
+  `middleware_match` 只接受 `'any'` / `'all'` 或 DNF 数组；其他类型（`int` / `bool` / 对象等）回落 `'any'`
+  并记录一条 warning（未知**字符串**静默降级为 `'any'` 是既有声明行为，不告警）。
 - **`prefix` 与 `middleware` 之间是 OR（任一命中即归入）关系**：路由命中任意一个
   `prefix` 前缀即归入此层级，即使其不满足 `middleware` 条件；反之，中间件命中而
   前缀不命中同样归入。⚠ 若你期望「前缀与中间件**同时**满足才归入」，请只使用

@@ -29,7 +29,7 @@ Service provider is auto-registered via Laravel package discovery.
 1. `->tier('name')` macro on a route (chainable; works on resource routes).
 2. `Route::group(['tier' => 'name', ...], fn)` — group inheritance; nested groups override.
 3. `Route::tier('name')->group(fn)` — fluent form, composes with `middleware` / `prefix` / `as` in any order.
-4. `config/forge.php` match rules — batch-classify by URI prefix / middleware (`any` / `all` / DNF arrays).
+4. `config/forge.php` match rules — batch-classify by URI prefix / middleware (`any` / `all` / DNF arrays). Both `prefix` and `middleware` also accept a single string (or scalar), equivalent to a one-element array; `middleware_match` accepts only `'any'` / `'all'` / a DNF array — any other type falls back to `'any'` and logs a warning.
 
 Resolution priority (highest first): explicit `->tier()` → group pass-through → `classifier` callback → config match → `unassigned` fallback.
 
