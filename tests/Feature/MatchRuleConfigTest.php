@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace RouteForge\Laravel\Tests\Feature;
 
+use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Orchestra\Testbench\TestCase;
 use Psr\Log\LoggerInterface;
 use RouteForge\Laravel\ForgeServiceProvider;
+use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
  * match 规则「配置形态」测试（对应 .docs/SPEC.md §3.1.2 的类型归一化）。
@@ -17,10 +19,13 @@ use RouteForge\Laravel\ForgeServiceProvider;
  *      （1.1.1 之前会在层级解析里抛 count(): Argument #1 must be of type Countable|array）
  *   2. match.middleware 同理
  *   3. 归一化不放宽语义：不命中的路由仍落 unassigned，不会全量命中
- *   4. middleware_match 传非法类型 → 回落 'any' 并经 PSR-3 记 warning
+ *   4. 命令面同样一致：单值前缀写法下 route:forge:list 的层级归属与 tier_counts、
+ *      route:forge:types 的层级块都与端点相同（此前别名那轮漂移正是「端点有、命令没有」，
+ *      只测端点封不住这类问题）
+ *   5. middleware_match 传非法类型 → 回落 'any' 并经 PSR-3 记 warning
  *
  * 逐条「单值 vs 数组等价」的细粒度断言在 common 侧 TierResolverTest 覆盖，
- * 本文件只守宿主可见面（HTTP 端点 + 注入 logger）。
+ * 本文件守宿主可见面：HTTP 端点、`route:forge:list` / `route:forge:types` 产物、注入 logger。
  */
 class MatchRuleConfigTest extends TestCase
 {
@@ -127,5 +132,55 @@ class MatchRuleConfigTest extends TestCase
         // 文本须给出可自助的修复指引（get_debug_type()：int 输出 [int]，不是 [integer]）
         $this->assertStringContainsString('expected string ("any"/"all") or DNF array', $matched[0]);
         $this->assertStringContainsString('Falling back to "any".', $matched[0]);
+    }
+
+    /**
+     * 命令面必须与端点一致——之前别名那轮漂移正是「端点里有、list/types 里没有」，
+     * 配置形态的差异同样不能只测端点。
+     */
+    public function test_single_string_prefix_is_reflected_in_list_and_types_commands(): void
+    {
+        config(['forge.levels' => [
+            'report' => ['description' => '报表', 'load' => 'lazy', 'match' => ['prefix' => 'report']],
+        ]]);
+
+        RouteFacade::get('/report/monthly', static function () {})->name('report.monthly');
+        RouteFacade::post('/report/export', static function () {})->name('report.export');
+
+        $list = $this->commandJson('route:forge:list', ['--json' => true]);
+        $levelByName = array_column((array) $list['routes'], 'level', 'name');
+        $this->assertSame('report', $levelByName['report.monthly'] ?? null);
+        $this->assertSame('report', $levelByName['report.export'] ?? null);
+        $this->assertSame(2, $list['tier_counts']['report'] ?? null);
+
+        $types = $this->commandJson('route:forge:types', ['--json' => true]);
+        $this->assertSame(['report.monthly', 'report.export'], array_keys((array) ($types['report'] ?? [])));
+        // POST 仍带 body 类型：证明单值写法走的是同一套收集逻辑，不是降级路径
+        $entry = (array) ($types['report']['report.export'] ?? []);
+        $this->assertSame('POST', $entry['method'] ?? null);
+        $this->assertArrayHasKey('body', $entry);
+    }
+
+    /**
+     * 跑命令并解析其 JSON 产物。
+     *
+     * 命令的警告写 stderr，而 Kernel::call 注入的是单一 BufferedOutput（无独立错误流），
+     * 因此测试里警告可能前缀在产物之前——真实终端下两条流天然分离。
+     *
+     * @param array<string, mixed> $options
+     *
+     * @return array<string, mixed>
+     */
+    private function commandJson(string $command, array $options = []): array
+    {
+        $buffer = new BufferedOutput();
+        $exit = $this->app->make(Kernel::class)->call($command, $options, $buffer);
+        $this->assertSame(0, $exit, $command . ' 应以 0 退出');
+
+        $raw = $buffer->fetch();
+        $start = strpos($raw, '{');
+        $this->assertNotFalse($start, $command . ' 应产出 JSON 对象');
+
+        return (array) json_decode(substr($raw, $start), true, flags: JSON_THROW_ON_ERROR);
     }
 }
