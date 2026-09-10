@@ -377,8 +377,10 @@ class ForgeServiceProvider extends ServiceProvider
                 [RouteMetadataController::class, 'show']
             )->defaults('level', $levelName);
 
-            $endpointMiddleware = $levelConfig['endpoint_middleware'] ?? [];
-            if (count($endpointMiddleware) > 0) {
+            // endpoint_middleware 与 Laravel 的 ->middleware() 同形：数组或单个字符串都接受。
+            // 入口统一 (array) 归一——此前裸值 count() 遇单写法会在 boot 阶段抛 TypeError，宿主全站 500。
+            $endpointMiddleware = (array) ($levelConfig['endpoint_middleware'] ?? []);
+            if ($endpointMiddleware !== []) {
                 $route->middleware($endpointMiddleware);
             }
         }
@@ -395,8 +397,10 @@ class ForgeServiceProvider extends ServiceProvider
             [RouteMetadataController::class, 'index']
         )->name('forge.routes.index');
 
-        $summaryMiddleware = config('forge.endpoint_middleware', []);
-        if (is_array($summaryMiddleware) && count($summaryMiddleware) > 0) {
+        // 摘要侧同口径归一：此前的 is_array() 守卫会把单值写法静默丢掉——配置写了、中间件没挂，
+        // 开发者却以为摘要端点（含全部层级与运行时配置）受保护，属危险方向的静默失效。
+        $summaryMiddleware = (array) config('forge.endpoint_middleware', []);
+        if ($summaryMiddleware !== []) {
             $summaryRoute->middleware($summaryMiddleware);
         }
     }

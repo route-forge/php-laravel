@@ -35,6 +35,13 @@
   单值写法与等价的单元素数组**逐键输出一致**（实证：同一组路由下摘要与各层级端点、`list` / `types` 全部产物相同）；
   `middleware_match` 传非 `string`/`array` 类型时回落 `'any'` 并记一条 PSR-3 warning。本包补
   `tests/Feature/MatchRuleConfigTest.php` 守宿主可见面，SPEC §3.1.2 把「接受单值」写成显式承诺
+- **`endpoint_middleware` 写成单个字符串的两处失效已修**（与上一条同族，落在本包 `ForgeServiceProvider`）：
+  层级侧 `levels.*.endpoint_middleware` 走裸值 `count()`，在 **Provider boot 阶段**抛 `TypeError` →
+  宿主全站每个请求 500（不只 forge 端点）；顶层 `endpoint_middleware` 的 `is_array()` 守卫更阴险——
+  非数组值被静默丢弃，配置写了、中间件没挂，摘要端点（全部层级 + 运行时配置）看起来受保护实则完全开放。
+  两处现统一按 `(array)` 归一并以 `!== []` 判空，单值写法与 Laravel 自身 `->middleware('auth')` 同形。
+  ⚠ **行为变化**：升级前把顶层 `endpoint_middleware` 写成字符串等价于「不限制」，升级后会真的挂上该中间件；
+  若你依赖旧的静默忽略行为（即本就没打算保护），请显式改为 `[]` 或 `null`（SPEC §3.1.5、§5）
 
 ### Changed
 
