@@ -21,15 +21,19 @@ return [
     | 每个层级的可用字段（对应 SPEC §5）：
     |
     |   description            string   ''    层级描述，仅用于文档与调试输出
-    |   match.prefix           string[] []    URI 前缀匹配列表，命中任一即归入此层级
-    |   match.middleware       string[] []    中间件匹配列表，匹配逻辑受 middleware_match 控制
-    |   match.middleware_match string|  'any' 中间件匹配模式：
-    |                          array          'any'（OR）/ 'all'（AND）/ DNF 数组（见 §3.1.2）
     |   load                   'eager'|'lazy'
     |                              'eager'    是否在摘要端点中标记为「前端应预加载」
     |                              'lazy'     前端自动发现时据此决定预加载策略
-    |   endpoint_middleware    string[]       访问该层级元信息端点时要求的中间件列表，未配置则不限制
-    |                          |null
+    |   match.prefix           string[] []    URI 前缀匹配列表，命中任一即归入此层级；
+    |                          |string        也接受单个字符串（等价于只含它的数组，需 common ≥ 1.1.1），
+    |                                         空字符串仍按「空前缀」跳过、不会命中所有路由
+    |   match.middleware       string[] []    中间件匹配列表，匹配逻辑受 middleware_match 控制；
+    |                          |string        同样接受单个字符串（需 common ≥ 1.1.1）
+    |   match.middleware_match string  'any'  中间件匹配模式：'any'（OR）/ 'all'（AND）/
+    |                          array          DNF 数组（见 §3.1.2）；只接受 string 或 array，
+    |                                         其他类型回落 'any' 并记录 warning
+    |   endpoint_middleware    string[]       访问该层级元信息端点时要求的中间件列表，未配置则不限制；
+    |                          |string|null   与 Laravel 的 ->middleware() 同形，接受单个字符串
     |
     */
     'levels'            => [

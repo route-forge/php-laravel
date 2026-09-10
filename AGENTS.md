@@ -88,6 +88,7 @@ Run it in the PHP/CI build stage — it reads the in-memory route registry, so i
 - **Strict mode**: `strict_mode=true` throws `RouteTierNotAssignedException` on an unmatched level; `false` routes them to `unassigned`.
 - **Frontend validation always throws** — no silent ignore. `strict_mode` is a backend concept (where an unmatched route goes); the deprecated frontend `strict` flag is unrelated — do not reintroduce it.
 - **Exclude the package's own routes** (`forge.routes.*`, `forge.manager.*`) from every metadata scan. If they leak into a scan, `strict_mode` will 500.
+- **Normalize config values at the read site**: any `config('forge.*')` / `levels.{name}.*` value that is array-valued by contract must be coerced with `(array)` *before* `count()`/`foreach` — a single string is a supported spelling (it mirrors Laravel's own `->middleware('auth')`), and `null`/missing means empty. Both type-safety bugs found in this project were the same pattern: `(array)` on the `foreach` but the raw value on the `count()`. One of them sat in `ForgeServiceProvider::registerMetadataEndpoint()`, which runs during `boot()` and therefore 500s the **entire host app**, not just the forge endpoints. Never "fix" this with a silent `is_array()` guard either: that variant dropped a non-array `endpoint_middleware` without a word, leaving the metadata endpoint (all tiers + runtime config) looking protected while carrying no middleware at all — fall back and warn instead.
 
 ## Editing this package (repo conventions)
 
