@@ -15,7 +15,7 @@
   （`RouteForge\Laravel\Exceptions\*` → `RouteForge\Common\Exception\*`，契约 →
   `RouteForge\Common\Contract\ForgeExceptionContract`），**错误码、`httpStatus()` 与消息文本一字未改**（SPEC §6）。
   `catch` 具体子类的宿主代码需改用新命名空间；按契约 catch 后读 `code()` 的无需改动。
-- 新增 Composer 依赖 `route-forge/common:^1.1`（层级铺开的别名可见性与 `@forgeSummary` 非 ASCII 两项修复自 1.1 起）。
+- 新增 Composer 依赖 `route-forge/common:^1.1.1`（别名跨层级可见性与 `@forgeSummary` 非 ASCII 两项修复自 1.1.0 起，`match` 规则的类型归一化自 1.1.1 起）。
 
 ### Fixed
 
@@ -29,6 +29,12 @@
   `<head>` 里的载荷体积按字符数成倍膨胀
 - 单层级缓存失效统一经 `RouteCache::forgetLevel()`，「失效一个层级必然同步失效摘要」由不变量保证，
   不再依赖每个调用方记得额外清 `'summary'` 键
+- **`match.prefix` / `match.middleware` 写成单个字符串不再让元信息端点 500**：此前 `'prefix' => 'admin'`
+  会在层级解析里抛 `count(): Argument #1 ($value) must be of type Countable|array, string given`（同文件对
+  `foreach` 用了 `(array)` 归一、对空值判断却按裸值 `count()`，自相矛盾）。归一化在 `common` 1.1.1 落地，
+  单值写法与等价的单元素数组**逐键输出一致**（实证：同一组路由下摘要与各层级端点、`list` / `types` 全部产物相同）；
+  `middleware_match` 传非 `string`/`array` 类型时回落 `'any'` 并记一条 PSR-3 warning。本包补
+  `tests/Feature/MatchRuleConfigTest.php` 守宿主可见面，SPEC §3.1.2 把「接受单值」写成显式承诺
 
 ### Changed
 
