@@ -1,0 +1,146 @@
+name: 缺陷报告
+description: 报告 Route Forge 的行为与文档/契约不一致、异常或静默失效
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。本包最擅长暴露的一类问题是「配置写了但没生效」的静默失效，
+        请尽量给出**可复制粘贴**的配置与路由声明，这会显著加快定位。
+
+        如果怀疑是安全问题，请按 [SECURITY.md](https://github.com/route-forge/php-laravel/blob/main/SECURITY.md)
+        走私密报告，不要开公开 Issue。
+
+  - type: input
+    id: affected_versions
+    attributes:
+      label: 受影响版本
+      description: 本包与框架无关核心的版本都要（`composer show route-forge/laravel route-forge/common`）
+      placeholder: "route-forge/laravel 2.0.0 + route-forge/common 1.1.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: laravel
+    attributes:
+      label: Laravel 版本
+      description: 兼容矩阵见 SPEC §7
+      options:
+        - "11.x"
+        - "12.x"
+        - "13.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: php
+    attributes:
+      label: PHP 版本
+      options:
+        - "8.2"
+        - "8.3"
+        - "8.4"
+        - "8.5"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: 出问题的面
+      description: 决定先看哪一段代码
+      options:
+        - "层级端点 GET /_forge/routes/{level}"
+        - "摘要端点 GET /_forge/routes"
+        - "@forgeSummary 首页内嵌"
+        - "route:forge:types 生成的 d.ts"
+        - "route:forge:list / route:forge:clear"
+        - "管理器页面 /_forge/manager"
+        - "宿主应用启动或全站 500"
+        - "缓存未按预期失效"
+        - "其他 / 不确定"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: strict_mode
+    attributes:
+      label: strict_mode 取值
+      description: 未分级路由的去向（抛异常 vs 汇入 unassigned）由此决定，是排查必备信息
+      options:
+        - "false（默认）"
+        - "true"
+        - "没配 / 不确定"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: debug
+    attributes:
+      label: APP_DEBUG
+      description: 为 true 时缓存读写被自动绕过、管理器路由才会注册
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: true
+
+  - type: textarea
+    id: forge_config
+    attributes:
+      label: config/forge.php 相关片段
+      description: 至少含 levels 与被怀疑的键（endpoint_middleware / match 规则 / aliases / manager_allowed_ips）
+      render: yaml
+      placeholder: |
+        'levels' => [
+            'admin' => [
+                'match' => ['prefix' => ['admin'], 'middleware' => ['auth', 'admin']],
+                'endpoint_middleware' => ['auth', 'admin'],
+                'load' => 'lazy',
+            ],
+        ],
+    validations:
+      required: true
+
+  - type: textarea
+    id: route_decl
+    attributes:
+      label: 相关路由声明
+      description: 请包含 group 的写法（数组语法 vs 前置链式——组属性必须写在 group() 之前）
+      render: php
+      placeholder: |
+        Route::middleware(['auth', 'admin'])->tier('admin')->prefix('admin')->group(function () {
+            Route::get('/users', [AdminUserController::class, 'index'])->name('admin.users.index');
+        });
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 从干净 Laravel 项目开始的编号步骤
+      placeholder: |
+        1. `composer create-project laravel/laravel demo "12.*"`
+        2. `composer require route-forge/laravel`
+        3. 按上面片段声明路由并访问 `GET /_forge/routes/admin`
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: 期望结果 vs 实际结果
+      description: 实际结果请附响应体、`php artisan route:forge:list --json` 输出或完整堆栈
+    validations:
+      required: true
+
+  - type: textarea
+    id: workarounds
+    attributes:
+      label: 已尝试的排查与绕过方式
+      description: 例如 `route:forge:clear` 后是否恢复、`APP_DEBUG=true` 下是否消失、是否只影响某一层级
+    validations:
+      required: false

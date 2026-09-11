@@ -1,0 +1,13 @@
+blank_issues_enabled: true
+
+contact_links:
+  - name: 行为口径先查 SPEC（端点字段、层级解析优先级、配置语义、错误码）
+    url: https://github.com/route-forge/php-laravel/tree/main/.docs
+    about: >-
+      SPEC.md 与 DESIGN.md 是前后端契约的唯一事实源。很多「看起来像 bug」的表现
+      （未分级路由汇入 unassigned、debug 下缓存被绕过、组属性必须写在 group() 之前）
+      都是已记录的既定行为，先确认再开 Issue 能省一轮往返。
+
+  - name: Packagist 页面
+    url: https://packagist.org/packages/route-forge/laravel
+    about: 安装、版本与依赖解析问题可先核对此处实际发布的版本。

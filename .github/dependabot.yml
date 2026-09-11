@@ -1,0 +1,61 @@
+version: 2
+
+# 维护态依赖看守：每周一次，只盯「会真正影响本包行为」的依赖。
+#
+# 为什么不是全量自动升级：
+#   本包是 library，`illuminate/*`、`phpunit`、`orchestra/testbench` 的约束是**刻意声明的
+#   多版本兼容范围**（`^11.0 || ^12.0 || ^13.0` 等），与 CI 矩阵一一对应。自动 bump 这类
+#   range 会破坏「约束 ↔ 测试矩阵」的对应关系，PR 也没有真实收益，故显式 ignore。
+#   要跟进 Laravel 新大版本属于人工决策（改 require + 扩矩阵 + 改文档），见 AGENTS.md。
+#
+# 为什么聚焦 route-forge/common：
+#   框架无关核心与本包共享同一份前后端契约，核心发了 patch/minor（含缺陷修复与口径归一）
+#   时本包应当跟进，这正是 Dependabot 能稳定产出的信号。major 变更属 breaking，
+#   仍会单独提 PR 供人工评估，不会被静默合并。
+#
+# 关于 Dependabot security updates：
+#   它基于 dependency graph + advisory database，而本包按 library 惯例**不提交 composer.lock**，
+#   因此在本仓库没有可用输入。安全通告的实际承接方式是：CI 从 Packagist 解析并跑
+#   `composer update`（解析失败即暴露问题），以及宿主应用侧的 `composer audit`。
+#   若日后想启用，需在仓库 Settings → Code security and analysis 开启，并留意上述限制。
+
+updates:
+  - package-ecosystem: composer
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+    groups:
+      core-patch-and-minor:
+        patterns:
+          - "route-forge/*"
+        # 注意：groups 下的 update-types 用裸枚举（major/minor/patch）；
+        # version-update:semver-* 那套长写法只适用于 ignore / allow 里的 update-types。
+        update-types:
+          - "patch"
+          - "minor"
+    ignore:
+      # 多版本兼容范围 = 契约声明，不自动 bump（详见文件头说明）
+      - dependency-name: "illuminate/*"
+      - dependency-name: "orchestra/testbench"
+      - dependency-name: "phpunit/phpunit"
+
+  # CI 自身的动作版本：actions/checkout、setup-php 的 major 升级有真实价值，
+  # 且不涉及本包的兼容性契约，保持全量看守。
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(ci)"
