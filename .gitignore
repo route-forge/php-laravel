@@ -2,8 +2,10 @@
 /vendor/
 composer.phar
 composer.lock
-# 本地开发配置（含 path repository 指向 ../route-forge-common），不提交版本库；
-# 本地安装用：COMPOSER=composer.local.json composer update
+# 仅为兜底：忽略旧版本地联调（composer.local.json + COMPOSER=...）的历史残留，避免被误提交。
+# 该流程已废弃并在 AGENTS.md「Local dev wiring」中标注为「不要复活」——COMPOSER 环境变量是整体替换
+# 而非合并清单，只写 {"repositories": [...]} 会静默产出空 vendor。
+# 现行做法：临时 composer config repositories.common ... ，提交前必须 --unset（见同节）。
 composer.local.json
 composer.local.lock
 

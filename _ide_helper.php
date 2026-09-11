@@ -113,4 +113,64 @@ namespace Illuminate\Routing {
             // IDE helper stub
         }
     }
+
+    /**
+     * Route Forge 扩展：资源路由一次生成的全部子路由共享同一层级。
+     *
+     * 对应 ForgeServiceProvider 注册在 PendingResourceRegistration 上的 `tier` 宏
+     * （与 PendingSingletonResourceRegistration 共用同一闭包实现）。
+     * 本桩只声明 Route Forge 新增的宏方法，不是该类的完整签名——
+     * index/create/store/show/edit/update/destroy 等仍由 Laravel 真实类提供。
+     *
+     * 用法示例：
+     * ```php
+     * Route::resource('admin/users', AdminUserController::class)->tier('admin');
+     * ```
+     *
+     * 注意：`->forgeAlias()` 宏不支持资源路由（一次生成多条命名路由，别名指向有歧义），
+     * 请在展开后的具体路由上声明。
+     *
+     * @see \RouteForge\Laravel\ForgeServiceProvider::registerTierMacro()
+     */
+    class PendingResourceRegistration
+    {
+        /**
+         * 为该资源路由生成的所有路由设置层级（tier）。
+         *
+         * 层级名必须存在于 forge.levels 配置中，否则抛 UnknownLevelException。
+         *
+         * @param string $tier 层级标识
+         * @return $this
+         */
+        public function tier(string $tier): static
+        {
+            return $this;
+        }
+    }
+
+    /**
+     * Route Forge 扩展：singleton 资源路由同样支持 ->tier()。
+     *
+     * 对应 ForgeServiceProvider 注册在 PendingSingletonResourceRegistration 上的 `tier` 宏。
+     *
+     * 用法示例：
+     * ```php
+     * Route::singleton('admin/profile', ProfileController::class)->tier('admin');
+     * ```
+     *
+     * @see \RouteForge\Laravel\ForgeServiceProvider::registerTierMacro()
+     */
+    class PendingSingletonResourceRegistration
+    {
+        /**
+         * 为该 singleton 资源路由生成的所有路由设置层级（tier）。
+         *
+         * @param string $tier 层级标识
+         * @return $this
+         */
+        public function tier(string $tier): static
+        {
+            return $this;
+        }
+    }
 }
