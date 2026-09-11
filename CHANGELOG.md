@@ -5,7 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [2.0.1] - 2026-09-12
+
+### Changed
+
+- 依赖下限收紧到 `route-forge/common:^1.1.2`：本包 SPEC §3.1.2 / §3.1.5 已承诺
+  `match.prefix` / `match.middleware` 与 level 级 `endpoint_middleware` 接受单值写法，
+  但 1.1.1 的管理器保存路径（`ConfigFileGenerator`）会在 `exportInlineArray()` 的 `array`
+  类型声明上抛 `TypeError`——文档承诺的写法一保存就崩。1.1.2 修好了读取侧与保存侧的口径相反。
 
 ### Fixed
 

@@ -122,6 +122,9 @@ return [
   `count(): Argument #1 ($value) must be of type Countable|array, string given` 并让元信息端点 500。
   `middleware_match` 只接受 `'any'` / `'all'` 或 DNF 数组；其他类型（`int` / `bool` / 对象等）回落 `'any'`
   并记录一条 warning（未知**字符串**静默降级为 `'any'` 是既有声明行为，不告警）。
+  保存回写路径另需 `route-forge/common` ≥ **1.1.2** 才与此口径一致：1.1.1 的 `ConfigFileGenerator`
+  会把单值直接喂给 `exportInlineArray()` 的 `array` 声明，导致「能读不能存」——写成单值的层级
+  一在管理器页面保存就 `TypeError`。本包 2.0.1 起依赖下限已收紧到 `^1.1.2`。
 - **`prefix` 与 `middleware` 之间是 OR（任一命中即归入）关系**：路由命中任意一个
   `prefix` 前缀即归入此层级，即使其不满足 `middleware` 条件；反之，中间件命中而
   前缀不命中同样归入。⚠ 若你期望「前缀与中间件**同时**满足才归入」，请只使用
