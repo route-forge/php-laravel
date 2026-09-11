@@ -830,6 +830,12 @@ PUT /_forge/manager/api/config   # 更新配置文件
   （浏览器访问 localhost 可能解析为 IPv6 的 `::1`，故一并放行）；列表元素 `'*'`
   放行任意来源；`null` / 空数组表示显式不做 IP 限制。局域网调试时把开发机局域网 IP
   追加进列表即可。线上 `APP_DEBUG=false` 根本不注册管理器路由，本配置天然不生效、可无视。
+  - **接受单值写法**：`'manager_allowed_ips' => '192.168.1.10'` 等价于 `['192.168.1.10']`
+    （与 Laravel `->middleware('auth')` 同形）。读取处统一 `(array)` 归一，与
+    `ConfigFileGenerator` 的保存路径同口径——否则会出现「运行期不限制、在管理器点一次保存后
+    突然开始限制」的行为翻转（此前即为此缺陷，见 §5 与 CHANGELOG）。
+  - **`null` 与「键缺失」不同**：显式 `null` / `[]` = 放开限制；键完全缺失（如沿用旧版本
+    发布的 `config/forge.php`）按 §5 默认值仅放行本机回环，取 fail-closed 方向。
 - 数据源与 Artisan 命令一致，直接从 Laravel 路由注册表读取，层级分配逻辑与运行时完全一致（遵循 §3.1.4
   五级优先级）。
 - 配置保存会重新生成 `config/forge.php` 文件；若存在编译缓存的配置（`php artisan config:cache`）则一并清除，使下一个请求重新读取配置文件生效。开发环境通常未缓存配置，下一个请求即时读取新文件。
@@ -865,7 +871,7 @@ PUT /_forge/manager/api/config   # 更新配置文件
 | `scheme_version`                       | `int`                        | `1`                    | 摘要端点返回的响应格式版本号（`schemeVersion` 字段）；后续迭代引入不兼容的格式变更时递增，前端据此做版本兼容                                                                                      |
 | `classifier`                           | `callable\|null`             | `null`                 | 自定义分类回调，签名 `fn(Route $r): ?string`，返回层级名或 null。返回的层级名必须在 `levels` 配置中存在，否则抛 `UnknownClassifierTierException`                                                  |
 | `aliases`                              | `array<string, string>`      | `[]`                   | 路由别名映射表（见 §3.1.7）：键=别名（旧路由名），值=真实路由名（新名）。与 `->forgeAlias()` 宏并用时宏优先；悬空别名抛 `AliasTargetException`                                                    |
-| `manager_allowed_ips`                  | `string[]\|null`             | `['127.0.0.1', '::1']` | 管理器页面 IP 白名单（仅 `APP_DEBUG=true` 有意义，线上不注册管理器路由可无视）：精确匹配来源 IP，`'*'` 放行任意来源，`null`/空数组不做限制                                                        |
+| `manager_allowed_ips`                  | `string[]\|string\|null`     | `['127.0.0.1', '::1']` | 管理器页面 IP 白名单（仅 `APP_DEBUG=true` 有意义，线上不注册管理器路由可无视）：精确匹配来源 IP，`'*'` 放行任意来源，`null`/空数组不做限制；单个字符串等价于只含它的数组；键缺失按本列默认值处理  |
 
 ## 6. 错误码
 
