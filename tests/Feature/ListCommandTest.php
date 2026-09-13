@@ -261,6 +261,52 @@ class ListCommandTest extends TestCase
         $this->assertSame(1, $decoded['tier_counts']['unassigned']);
     }
 
+    public function test_table_marks_unassigned_rows_magenta(): void
+    {
+        $buffer = new BufferedOutput();
+        $buffer->setDecorated(true);
+        $exit = $this->app->make(Kernel::class)->call('route:forge:list', [], $buffer);
+        $out  = $buffer->fetch();
+
+        $this->assertSame(0, $exit);
+        // 未分配层级整行品红（fg=magenta → \e[35m）：Name 列与 Level 列都着色
+        $this->assertStringContainsString("\033[35morphan", $out);
+        $this->assertStringContainsString("\033[35munassigned", $out);
+        // 命中层级的真实路由行保持默认颜色（行首无转义码）
+        $this->assertMatchesRegularExpression('/^\| admin\.users\.index /m', $out);
+        // 汇总行的 warn 提示不受影响，两处信号并存
+        $this->assertStringContainsString('route(s) are unassigned', $out);
+
+        // 不支持着色时（未 setDecorated）必须只剩纯文本，不得残留 markup
+        [$plainExit, $plain] = $this->runList();
+        $this->assertSame(0, $plainExit);
+        $this->assertStringNotContainsString('fg=magenta', $plain, '着色 markup 不得泄漏为字面文本');
+        $this->assertStringNotContainsString("\033[", $plain, '非着色输出不得混入 ANSI 码');
+        $this->assertMatchesRegularExpression('/^\| orphan /m', $plain);
+    }
+
+    public function test_magenta_unassigned_wins_over_alias_yellow(): void
+    {
+        // orphan（setUp 中未分配）的旧名别名：别名行跟随目标落在 unassigned 层级，
+        // 整行品红优先于别名黄——「待配层级」是更需要被看到的问题，
+        // 别名身份仍由 Alias Of 列的文字表达
+        RouteFacade::get('/legacy/orphan', static function () {})
+            ->name('legacy.orphan')
+            ->forgeAlias('orphan.old');
+
+        $buffer = new BufferedOutput();
+        $buffer->setDecorated(true);
+        $exit = $this->app->make(Kernel::class)->call('route:forge:list', [], $buffer);
+        $out  = $buffer->fetch();
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString("\033[35morphan.old", $out);
+        $this->assertStringNotContainsString("\033[33morphan.old", $out, '未分配行的品红应优先于别名黄');
+        $this->assertStringContainsString('orphan.old', $out);
+        // 声明别名的目标路由自身也未分配 → 同为品红（黄只属于命中层级的别名行）
+        $this->assertStringContainsString("\033[35mlegacy.orphan", $out);
+    }
+
     public function test_table_marks_alias_rows_yellow_and_real_routes_plain(): void
     {
         // 别名用非撞车名（admin.users.index 是 setUp 中的真实路由，撞车会被忽略）

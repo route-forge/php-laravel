@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Routing\Router;
 use RouteForge\Common\Analyzer\RouteAnalyzer;
 use RouteForge\Common\Contract\ForgeExceptionContract;
+use RouteForge\Common\Repository\RouteRepository;
 use RouteForge\Laravel\Adapter\LaravelRouteNormalizer;
 
 /**
@@ -34,7 +35,8 @@ class RouteForgeListCommand extends Command
         $asJson = (bool) $this->option('json');
 
         // level 过滤校验（unassigned 特殊层级合法）
-        if ($filterLevel !== null && $filterLevel !== '' && !in_array($filterLevel, array_merge($levels, ['unassigned']), true)) {
+        if ($filterLevel !== null && $filterLevel !== '' && !in_array($filterLevel,
+                array_merge($levels, [RouteRepository::UNASSIGNED_LEVEL]), true)) {
             $this->error("Unknown level: {$filterLevel}");
             $this->line('Available levels: ' . (empty($levels) ? '(none)' : implode(', ',
                     $levels)));
@@ -71,7 +73,8 @@ class RouteForgeListCommand extends Command
             return 0;
         }
 
-        $orderedCounts = $payload['tier_counts'];
+        $orderedCounts   = $payload['tier_counts'];
+        $unassignedCount = $orderedCounts[RouteRepository::UNASSIGNED_LEVEL];
 
         // 层级统计汇总（unassigned 非零是「match 规则漏配」最常见的信号，主动提示）
         $this->line('Tier counts: ' . implode(' | ', array_map(
@@ -79,8 +82,8 @@ class RouteForgeListCommand extends Command
             array_keys($orderedCounts),
             $orderedCounts,
         )));
-        if ($orderedCounts['unassigned'] > 0) {
-            $this->warn($orderedCounts['unassigned'] . " route(s) are unassigned and only available via the 'unassigned' tier. "
+        if ($unassignedCount > 0) {
+            $this->warn($unassignedCount . " route(s) are unassigned and only available via the 'unassigned' tier. "
                 . 'Check match rules in config/forge.php or add explicit ->tier(...) markers.');
         }
 
@@ -102,17 +105,31 @@ class RouteForgeListCommand extends Command
         $tableRows = array_map(function (array $r) use ($aliasedTargets) {
             $methods = static fn (array $row): string => implode('|', RouteAnalyzer::withoutHead($row['methods']));
 
+            // 整行着色优先级：unassigned 品红（待分配的警告态）> 别名黄 > 默认。
+            // 品红覆盖别名黄时，别名身份仍由 Alias Of 列的文字表达，不依赖颜色。
+            if ($r['level'] === RouteRepository::UNASSIGNED_LEVEL) {
+                $magenta = static fn (string $cell): string => "<fg=magenta>{$cell}</>";
+
+                return array_map($magenta, [
+                    $r['name'],
+                    $r['level'],
+                    $methods($r),
+                    $r['uri'],
+                    (string) $r['alias_of'],
+                ]);
+            }
+
             // 别名整行黄色标识，真实路由行保持默认颜色（仅 table 模式；JSON 输出保持纯文本契约不变）
             if ($r['alias_of'] !== null) {
                 $yellow = static fn (string $cell): string => "<fg=yellow>{$cell}</>";
 
-                return [
-                    $yellow($r['name']),
-                    $yellow($r['level']),
-                    $yellow($methods($r)),
-                    $yellow($r['uri']),
-                    $yellow((string) $r['alias_of']),
-                ];
+                return array_map($yellow, [
+                    $r['name'],
+                    $r['level'],
+                    $methods($r),
+                    $r['uri'],
+                    (string) $r['alias_of'],
+                ]);
             }
             // 真实路由名被别名指向 → Name 列绿色（长期稳定对外名的审计信号）
             $hasAlias = in_array($r['name'], $aliasedTargets, true);

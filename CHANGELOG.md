@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Changed
+
+- **`route:forge:list` 的表格输出中，落在 `unassigned` 特殊层级的路由整行以品红（magenta）显示**：
+  此前这类行与命中层级的普通行同色，只能靠 `Level` 列的文字或表格上方的 warn 汇总行发现
+  「这条路由没配层级」；一次 `route:forge:list` 动辄几十行，漏写 `->tier(...)` / match 规则漏配
+  就这样被划过去。现在待清理项肉眼可辨，与已有的「别名整行黄 / 撞车声明整行红」约定同构。
+  - 整行着色优先级为**品红（未分配）> 黄（别名）**：别名行跟随目标层级，目标未分配时该行同样
+    是待清理项；此时别名身份仍由 `Alias Of` 列的文字表达，不依赖颜色。
+  - 着色仅存在于 table 模式，`--json` 的产物与 `warnings` 内容**完全不变**（机器侧判定继续读
+    `tier_counts.unassigned`，不给同一事实造第二个真值源）。终端不支持着色时 markup 由 Symfony
+    剥净，纯文本表格不变（SPEC §3.2）。
+
 ## [2.0.1] - 2026-09-12
 
 ### Changed
