@@ -53,7 +53,7 @@ Aliases are injected as extra keys into the target route's tier metadata (pure c
 
 ## Artisan commands
 
-- `php artisan route:forge:list` — show tier assignment (`--level`, `--json`, `--unassigned`, `--aliases`).
+- `php artisan route:forge:list` — show tier assignment (`--level`, `--json`, `--unassigned`, `--aliases`, `--unnamed`). `--unnamed` is a standalone view listing every route without a name (grouped by tier, including routes no tier rule matches); it prints no table and no warnings, and cannot be combined with `--json`/`--unassigned`/`--aliases`.
 - `php artisan route:forge:types` — emit TypeScript declarations (stdout; `--out <file>`, `--level`, `--json`). Works offline, no HTTP server needed.
 - `php artisan route:forge:clear` — clear metadata cache (`--level`; also auto-cleared by `route:clear`).
 
@@ -65,7 +65,7 @@ Aliases are injected as extra keys into the target route's tier metadata (pure c
 - `endpoint_middleware` (string[]) — middleware on the summary endpoint; empty/null = unrestricted.
 - `cache_ttl` (int|null, default 3600) — shared TTL; null = no cache, 0 = forever, negative = null.
 - `cache_driver` (string|null) — cache driver; null = default.
-- `strict_mode` (bool, default false) — throw `RouteTierNotAssignedException` on a miss, else fall into `unassigned`.
+- `strict_mode` (bool, default false) — treat tier problems as configuration errors, reported **all at once** via the aggregated `RF_BE_009` (`missing_name` + `unassigned`); HTTP 500, CLI prints a red list and exits 1. When false, unmatched named routes fall into `unassigned`.
 - `scheme_version` (int, default 1) — summary response format version.
 - `classifier` (callable|null) — custom `fn(Route $r): ?string`.
 - `aliases` (array<string, string>, default `[]`) — route alias map: old route name → new route name; macro `->forgeAlias()` wins when both declare the same alias.
@@ -75,7 +75,9 @@ Aliases are injected as extra keys into the target route's tier metadata (pure c
 - **Dev mode**: under `APP_DEBUG=true` all cache reads/writes are skipped, so route changes take effect instantly; caching is on in production.
 - **Manager page**: `GET /_forge/manager` — dev-only visual panel (overview / search / config editing). Registered only when `APP_DEBUG=true`, and guarded by the `manager_allowed_ips` allowlist (default `127.0.0.1` / `::1`).
 - **Design rule**: frontend validation always throws (no silent ignores). `strict_mode` is backend semantics (where an unmatched route goes); the old frontend `strict` flag is deprecated.
-- **Self routes excluded**: the package's own routes (`forge.routes.*`, `forge.manager.*`) are excluded from every metadata scan; otherwise `strict_mode` would 500.
+- **Self routes excluded** — the package's own routes never enter a scan (otherwise `strict_mode` would always 500). Exclusion has **two dimensions**: by route *name* prefix (`forge.routes.*`, `forge.manager.*`, plus framework-internal prefixes such as `storage.`) and by *URI* prefix (the normalized `endpoint_prefix`). The URI dimension is required because the per-tier endpoints `GET /{endpoint_prefix}/{level}` are themselves **unnamed** routes, and once a tier sets `endpoint_middleware` they are matched by that tier's own `match.middleware` rule — without URI exclusion the package reports itself as the host's misconfiguration.
+- **Unnamed routes are visible** — a route without a name can never be referenced by `url()` nor appear in any endpoint / type map / list row, so a route that a tier rule matches without a name is a configuration error: it surfaces in `warnings` (with URI, methods, middleware and *which* priority level matched it — explicit `->tier()`, `classifier` or config `match`), and the full inventory (including unnamed routes no rule matches, which are legitimately nameless) is available via `route:forge:list --unnamed`.
+- **Strict mode reporting is aggregated** — `RF_BE_009` lists both problem classes in one pass (no more "fix one, get the next"). Endpoints return `code` + a human-readable `message`; the structured `violations()` payload is only included when `APP_DEBUG=true`. `route:forge:list` still prints its table and exits 1 with the red list; `route:forge:types` **produces no output at all** (no file written, nothing on stdout) rather than emitting type declarations that would be committed as a seemingly-correct contract.
 
 ## Optional pairing
 

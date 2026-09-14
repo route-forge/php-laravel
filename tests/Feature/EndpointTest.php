@@ -16,8 +16,9 @@ use RouteForge\Laravel\ForgeServiceProvider;
  *   2. 层级隔离：不同 level 互不污染
  *   3. 未命名路由不出现在元信息里
  *   4. 未知层级 → 404 + RF_BE_002
- *   5. strict_mode + 未声明 tier 的命名路由 → 500 + RF_BE_001
- *   6. 缓存命中：二次请求直接返回缓存，不重扫
+ *   5. strict_mode + 未声明 tier 的命名路由 → 500 + RF_BE_009（缺名字/缺层级一次报全）
+ *   6. 严格模式不把包自身的层级端点算成宿主违规；生产形态（debug=false）错误体不下发结构化清单
+ *   7. 缓存命中：二次请求直接返回缓存，不重扫
  *
  * 说明：
  *   - ForgeServiceProvider::boot() 已注册元信息端点 GET /{endpoint_prefix}/{level}
@@ -122,13 +123,61 @@ class EndpointTest extends TestCase
         RouteFacade::get('/orphan', static function () {})
             ->name('orphan');
 
-        // strict_mode=true 时，扫描任一层级都会遍历所有命名路由，
-        // 命中未分配层级的用户路由（orphan）时 TierResolver 抛 RF_BE_001。
-        // 包自身端点路由（forge.routes.*）已在扫描中排除，不参与解析。
+        // strict_mode=true 时任一读路径取数前先全量预扫描，未归级路由聚合进 RF_BE_009
+        // （common ≥ 1.2.0：不再是「第一条就中断」的 RF_BE_001，两类问题一次报全）。
         $response = $this->get($this->endpoint('admin'));
 
         $response->assertStatus(500);
-        $this->assertSame('RF_BE_001', $response->json('error.code'));
+        $this->assertSame('RF_BE_009', $response->json('error.code'));
+        $this->assertStringContainsString('orphan', $response->json('error.message'));
+    }
+
+    public function test_strict_mode_reports_both_violation_kinds_in_one_response(): void
+    {
+        // 一次请求同时埋下两类问题：命名但未归级 + 有层级归属但没有名字
+        config()->set('forge.strict_mode', true);
+        RouteFacade::get('/orphan', static function () {})->name('orphan');
+        RouteFacade::get('/admin/nameless', static function () {})->tier('admin');
+
+        $response = $this->get($this->endpoint('admin'));
+
+        $response->assertStatus(500);
+        $message = (string) $response->json('error.message');
+        $this->assertStringContainsString('found 2 route configuration problem(s)', $message);
+        $this->assertStringContainsString('assigned to a level but have no', $message);
+        $this->assertStringContainsString('not matched by any level rule', $message);
+        // 旧形态：单条 RF_BE_001 中断，读者永远只看到第一类
+        $this->assertStringNotContainsString('RF_BE_001', $message);
+    }
+
+    public function test_strict_mode_does_not_count_package_own_level_endpoint_as_violation(): void
+    {
+        // `_forge/routes/admin` 是未命名路由，且带 admin 层级自己的 endpoint_middleware，
+        // 会被该层级的 match.middleware 命中。RouteNameFilter 的 URI 维度没接线时，
+        // 包会把自己算成宿主的「有层级无名字」违规 → 严格模式对所有宿主必然 500。
+        config()->set('forge.strict_mode', true);
+        config()->set('forge.levels.admin.endpoint_middleware', ['auth', 'admin']);
+
+        RouteFacade::get('/admin/users', static function () {})
+            ->name('admin.users.index')
+            ->tier('admin');
+
+        $this->get($this->endpoint('admin'))->assertStatus(200);
+        $this->get($this->summaryEndpoint())->assertStatus(200);
+    }
+
+    public function test_strict_mode_error_body_omits_structured_violations_in_production(): void
+    {
+        // 本类 defineEnvironment 里 app.debug=false（生产形态）：错误体只有 code/message，
+        // 结构化的违规目录不下发（message 已是人读清单，路由清单属内部结构信息）
+        config()->set('forge.strict_mode', true);
+        RouteFacade::get('/orphan', static function () {})->name('orphan');
+
+        $response = $this->get($this->endpoint('admin'));
+
+        $response->assertStatus(500);
+        $this->assertSame('RF_BE_009', $response->json('error.code'));
+        $this->assertArrayNotHasKey('violations', $response->json('error'));
     }
 
     public function test_strict_mode_all_routes_assigned_returns_200(): void

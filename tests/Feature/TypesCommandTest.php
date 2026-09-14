@@ -221,18 +221,37 @@ class TypesCommandTest extends TestCase
         $this->assertSame(['page' => '1'], $route['parameter_defaults']);
     }
 
-    public function test_strict_mode_unassigned_route_prints_code_instead_of_stack_trace(): void
+    public function test_strict_mode_violations_abort_generation_and_exit_1(): void
     {
-        // strict 模式下存在未分配路由：resolve 抛 RF_BE_001，
-        // 命令应输出 [错误码] 消息而非裸堆栈（与别名错误处理对齐）
+        // common ≥ 1.2.0：不再是单条 [RF_BE_001]，而是一次列全的红色违规清单。
+        // 关键是「不产出」：带病的 d.ts 一旦被前端 commit，就固化成看起来是对的契约。
         RouteFacade::get('/orphan', static function () {})->name('orphan');
         config(['forge.strict_mode' => true]);
 
         [$exit, $out] = $this->runTypes();
 
         $this->assertSame(1, $exit);
-        $this->assertStringContainsString('[RF_BE_001]', $out);
+        $this->assertStringContainsString('Route Forge strict_mode found 1 route configuration problem(s):', $out);
+        $this->assertStringContainsString('orphan (GET orphan)', $out);
+        $this->assertStringNotContainsString('[RF_BE_', $out);
         $this->assertStringNotContainsString('Stack trace', $out);
+        // 产物完全不输出：stdout 里不得出现任何 d.ts 结构
+        $this->assertStringNotContainsString("declare module '@route-forge/core'", $out);
+        $this->assertStringNotContainsString('interface ForgeRouteMap', $out);
+    }
+
+    public function test_strict_mode_violations_do_not_write_out_file(): void
+    {
+        $outPath = sys_get_temp_dir() . '/forge-test/strict-violations.d.ts';
+        @unlink($outPath);
+
+        RouteFacade::get('/orphan', static function () {})->name('orphan');
+        config(['forge.strict_mode' => true]);
+
+        [$exit] = $this->runTypes(['--out' => $outPath]);
+
+        $this->assertSame(1, $exit);
+        $this->assertFileDoesNotExist($outPath, '有违规时不得写出（覆盖）类型声明产物');
     }
 
     public function test_tier_without_name_prints_warning_to_stderr(): void

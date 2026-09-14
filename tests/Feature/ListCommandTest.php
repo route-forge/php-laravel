@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RouteForge\Laravel\Tests\Feature;
 
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Orchestra\Testbench\TestCase;
 use RouteForge\Laravel\ForgeServiceProvider;
@@ -178,18 +179,57 @@ class ListCommandTest extends TestCase
         $this->assertSame(3, $decoded['count']);
     }
 
-    public function test_strict_mode_unassigned_route_prints_code_instead_of_stack_trace(): void
+    public function test_strict_mode_prints_red_violation_list_and_exits_1(): void
     {
-        // strict 模式下存在未分配路由：resolve 抛 RF_BE_001，
-        // 命令应输出 [错误码] 消息而非裸堆栈（与别名错误处理对齐）
+        // common ≥ 1.2.0：严格模式不再「第一条未归级就中断并打 [RF_BE_001]」，
+        // 改为表格照常输出、末尾追加红色违规清单、退出码 1——排查场景下命令本身必须还能跑
         config(['forge.strict_mode' => true]);
 
         [$exit, $out] = $this->runList();
 
         $this->assertSame(1, $exit);
-        $this->assertStringContainsString('[RF_BE_001]', $out);
-        $this->assertStringContainsString('orphan', $out);
+        $this->assertStringContainsString('Route Forge strict_mode found 1 route configuration problem(s):', $out);
+        $this->assertStringContainsString('named route(s) are not matched by any level rule', $out);
+        $this->assertStringContainsString('orphan (GET orphan)', $out);
+        // 违规不再是「一条一码」的 Forge 异常形态，也不得吐堆栈
+        $this->assertStringNotContainsString('[RF_BE_', $out);
         $this->assertStringNotContainsString('Stack trace', $out);
+        // 清单是追加而非替代：统计行与表格仍在，便于对照
+        $this->assertStringContainsString('Tier counts:', $out);
+        $this->assertStringContainsString('admin.users.index', $out);
+    }
+
+    public function test_strict_mode_reports_missing_name_and_unassigned_in_one_run(): void
+    {
+        // 两类问题一次报全（旧实现只会先撞上其中一条就退出，修一条刷一条）
+        config(['forge.strict_mode' => true]);
+        RouteFacade::get('/admin/unnamed', static function () {})->tier('admin');
+
+        [$exit, $out] = $this->runList();
+
+        $this->assertSame(1, $exit);
+        $this->assertStringContainsString('found 2 route configuration problem(s)', $out);
+        $this->assertStringContainsString('assigned to a level but have no', $out);
+        $this->assertStringContainsString('not matched by any level rule', $out);
+        $this->assertStringContainsString('admin/unnamed', $out);
+        $this->assertStringContainsString('orphan', $out);
+    }
+
+    public function test_strict_mode_does_not_report_package_own_endpoint_as_violation(): void
+    {
+        // 层级端点 `_forge/routes/admin` 是未命名路由，且带 admin 层级自己的 endpoint_middleware，
+        // 会被该层级的 match.middleware 规则命中。RouteNameFilter 的 URI 维度没接线时，
+        // 包会把自己报成宿主的「有层级无名字」违规——这里钉住它必须不出现。
+        config([
+            'forge.strict_mode' => true,
+            'forge.levels.admin.endpoint_middleware' => ['auth', 'admin'],
+        ]);
+
+        [$exit, $out] = $this->runList();
+
+        $this->assertSame(1, $exit);
+        $this->assertStringNotContainsString('_forge/routes', $out);
+        $this->assertStringNotContainsString('_forge/manager', $out);
     }
 
     public function test_tier_without_name_prints_console_warning(): void
@@ -219,6 +259,76 @@ class ListCommandTest extends TestCase
         foreach ($decoded['routes'] as $route) {
             $this->assertNotSame('/admin/unnamed', $route['uri']);
         }
+    }
+
+    public function test_unnamed_view_lists_every_unnamed_route_without_table_or_warnings(): void
+    {
+        // --unnamed 的价值正是「事后也能找出谁没名字」：既列被层级规则命中的
+        // （manage/no-name 靠 match.prefix 命中，历史上完全静默），也列压根没归级的（freeform）。
+        RouteFacade::get('/manage/no-name', static function () {});
+        RouteFacade::get('/freeform', static function () {});
+
+        [$exit, $out] = $this->runList(['--unnamed' => true]);
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('unnamed route(s) total', $out);
+        $this->assertStringContainsString('manage/no-name', $out);
+        $this->assertStringContainsString('freeform', $out);
+        // 独立视图：不打印表格与统计，避免与 warnings 双写同一事实
+        $this->assertStringNotContainsString('Tier counts:', $out);
+        $this->assertStringNotContainsString('admin.users.index', $out);
+        // 包自身的未命名层级端点不得混进来（按 URI 排除，否则视图被自家路由刷满）
+        $this->assertStringNotContainsString('_forge/routes', $out);
+    }
+
+    public function test_unnamed_view_honours_level_filter(): void
+    {
+        RouteFacade::get('/manage/no-name', static function () {});
+        RouteFacade::get('/freeform', static function () {});
+
+        [$exit, $out] = $this->runList(['--unnamed' => true, '--level' => 'manage']);
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('manage/no-name', $out);
+        $this->assertStringNotContainsString('freeform', $out);
+    }
+
+    public function test_unnamed_view_says_so_when_every_route_is_named(): void
+    {
+        // 空视图要给明确文案，而不是空屏让人以为命令没跑
+        [$exit, $out] = $this->runList(['--unnamed' => true]);
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('No unnamed routes', $out);
+    }
+
+    public function test_unnamed_view_rejects_being_combined_with_output_modes(): void
+    {
+        // unnamed 是独立数据源（不在 rows 里）：与 --json 同屏要为此新造一份 JSON 形态，
+        // 与表格同屏就是双写。判为参数冲突，而不是悄悄丢掉某一边。
+        foreach (['--json', '--unassigned', '--aliases'] as $opt) {
+            [$exit, $out] = $this->runList(['--unnamed' => true, $opt => true]);
+
+            $this->assertSame(1, $exit, "组合 {$opt} 应判为参数冲突");
+            $this->assertStringContainsString('standalone view', $out);
+        }
+    }
+
+    public function test_unnamed_view_can_isolate_the_virtual_unresolved_group(): void
+    {
+        // classifier 返回未配置的层级名 → probe 标为 classifier-unknown-tier，条目落在虚拟分组
+        // unresolved：它既不是真实层级、也不属于 unassigned，唯独 --unnamed 视图能按它过滤。
+        // 这批「层级名写错的未命名路由」正是最难自己冒出来的，放通标签才有排查入口。
+        config(['forge.classifier' => static function (Route $route): ?string {
+            return $route->uri() === 'weird/one' ? 'not-a-configured-level' : null;
+        }]);
+        RouteFacade::get('/weird/one', static function () {})->middleware('auth');
+
+        [$exit, $out] = $this->runList(['--unnamed' => true, '--level' => 'unresolved']);
+
+        $this->assertSame(0, $exit);
+        $this->assertStringContainsString('unresolved', $out);
+        $this->assertStringContainsString('weird/one', $out);
     }
 
     public function test_summary_counts_printed_with_unassigned_hint(): void

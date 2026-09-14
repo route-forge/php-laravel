@@ -52,7 +52,8 @@ Route Forge 提供多种可互换、可组合的层级分配方式。层级名�
 - **摘要端点** `GET /_forge/routes`——返回所有层级概览 + 全局配置 + 未分配信息，供客户端自动发现。
 - **统一缓存**——所有端点共享同一 TTL 与 `cache_driver`；开发模式（`APP_DEBUG=true`）自动跳过。
 - **Artisan 命令**——`route:forge:list`、`route:forge:types`、`route:forge:clear`。
-- **严格模式**——`strict_mode=true` 时未命中层级抛 `RouteTierNotAssignedException`；否则归入 `unassigned`。
+- **严格模式**——`strict_mode=true` 时把配置问题**一次报全**：聚合错误码 `RF_BE_009` 同时列出「命名路由未命中任何层级」与「归入层级却没有路由名」两类；否则未命中的归入 `unassigned`。
+- **未命名路由可见**——没有路由名的路由不可能被 `url()` 引用、也进不了任何元信息，因此显式开口：被层级规则命中时出警告，全量清单看 `route:forge:list --unnamed`。
 - **管理器页面**——仅开发环境可用的可视化面板 `GET /_forge/manager`（总览、搜索/过滤、配置编辑）。
 
 ## 环境要求
@@ -147,7 +148,7 @@ const adminRoutes = await fetch('/_forge/routes/admin').then(r => r.json());
 ### Artisan 命令
 
 ```bash
-# 查看层级分配结果（--level 过滤、--json、--unassigned 仅看未分配）
+# 查看层级分配结果（--level 过滤、--json、--unassigned 仅看未分配、--aliases 仅看别名、--unnamed 未命名路由全量清单）
 php artisan route:forge:list
 
 # 生成 TypeScript 类型声明（默认输出到 stdout；--out 写文件；--level / --json 可选）
@@ -168,7 +169,7 @@ php artisan route:forge:clear
 | `endpoint_middleware` | `string[]` | `[]` | 摘要端点中间件；空数组或 null 不限制 |
 | `cache_ttl` | `int\|null` | `3600` | 统一缓存 TTL（秒）；`null` 不缓存，`0` 永久缓存，负值视为 `null` |
 | `cache_driver` | `string\|null` | `null` | 缓存驱动；`null` 使用默认驱动 |
-| `strict_mode` | `bool` | `false` | 未命中层级时抛异常（`true`）或归入 `unassigned`（`false`） |
+| `strict_mode` | `bool` | `false` | `true`：把层级配置问题聚合进一条 `RF_BE_009` 报告一次报全；`false`：未命中的归入 `unassigned` |
 | `scheme_version` | `int` | `1` | 摘要端点响应格式版本（`schemeVersion`） |
 | `classifier` | `callable\|null` | `null` | 自定义分类回调 `fn(Route $r): ?string` |
 

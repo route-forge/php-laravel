@@ -5,6 +5,24 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Added
+
+- **`route:forge:list --unnamed`：未命名路由的全量清单视图**。此前「归进了层级却没有路由名」的路由只有手写 `->tier()` 那一种会出警告，靠 `match` 规则或 `classifier` 归级的完全静默——事后既不知道谁没名字、也不好找。现在被层级规则命中的未命名路由逐条进 `warnings`（含 URI / HTTP 方法 / 中间件与**命中来源**），`--unnamed` 则给出按层级分组的全量清单（含未命中任何层级、按设计不需要名字的那批；可用 `--level` 进一步过滤，取值额外接受虚拟分组 `unresolved`）。该视图是独立数据源：不打印表格与 `warnings`（同一事实不双写），退出码恒 `0`；与 `--json` / `--unassigned` / `--aliases` 同时给出判为参数冲突并退出 `1`，不静默丢掉任何一侧（SPEC §3.2）。
+- **`RouteNameFilter` 接入 URI 维度排除**：`ForgeServiceProvider` 的过滤器单例在既有名字前缀之后链上 `withUriPrefixes([规范化后的 endpoint_prefix])`。必要性：包自己的层级端点 `GET /{endpoint_prefix}/{level}` **本身就是未命名路由**，一旦某层级配了 `endpoint_middleware`，它带上的中间件会被该层级自己的 `match.middleware` 规则命中——不按 URI 排除，包就会在 `--unnamed`、`warnings` 与严格模式违规清单里把自家端点报成宿主的配置错误（且所有配了端点保护的宿主在 `strict_mode` 下必然 500）。端点注册侧的前缀规范化改用同一实现（`RouteRepository::normalizeEndpointPrefix()`），杜绝「注册一套写法、排除另一套」的漂移。
+- **开发模式（`APP_DEBUG=true`）下 `RF_BE_009` 错误体新增结构化 `error.violations`**（`missing_name` / `unassigned` / `unresolved` 三组恒定存在），供管理器页面与控制台逐行定位。生产形态仍只给 `code` + `message`：清单本身是宿主越界路由的名字与 URI 目录，属内部结构信息。
+
+### Changed
+
+- ⚠️ **严格模式一次报全，取代「修一条刷一条」**（接线 `route-forge/common` 1.2.0）：
+  - **HTTP 端点**：`strict_mode=true` 的层级配置问题由聚合错误码 **`RF_BE_009`**（`RouteStrictViolationException`，500）承载，`message` 一次列全「命名路由未归级」与「有层级归属却无路由名」两类。此前是第一条就中断的 `RF_BE_001`；`RF_BE_001` / `RF_BE_005` 的异常类与单条语义保留（直接调用 `TierResolver::resolve()` 时仍生效），forge 的两条消费路径不再逐条抛。⚠️ `RF_BE_005` 在旧版本实为**死代码**——分析器与仓库都在 `resolve()` 之前跳过无名路由，SPEC 承诺的严格模式 500 从不触发，本批起才真正报错（SPEC §6.1）。
+  - **`route:forge:list`**：不再以 `[RF_BE_001]` 单条中断，改为统计行与表格照常输出、末尾追加红色违规清单、退出码 `1`（排查场景下命令本身必须还能跑出全貌）；`--json` 时 stdout 仍是纯 JSON 产物，清单改投 stderr，退出码同为 `1`。
+  - **`route:forge:types`**：发现违规时**完全不产出**类型声明——既不写 `--out` 目标文件（也不覆盖它），也不往 stdout 输出任何 d.ts / `--json` 结构，红色清单走 stderr + 退出码 `1`。带病的 `d.ts` 一旦被前端 commit 就固化成「看起来是对的」契约，比一条报错难查得多。
+  - 宽松模式（默认）输出形态**一字未改**：表格、`tier_counts`、`--json` 契约与 `warnings` 结构均保持原样。
+- 依赖下限抬到 `route-forge/common:^1.2.0`：本批用到 `TierResolver::probe()` / `RouteAnalyzer::formatUnnamed()` / `Support\StrictViolationScanner` / `RouteNameFilter::withUriPrefixes()` / `Exception\RouteStrictViolationException`。发版顺序为 common → 本包（CI 从 Packagist 安装，需上游 tag 先出）。
+- 文档同步：`.docs/SPEC.md` §3.1.4（未命名路由可见性）/ §3.1.5（排除规则的两个维度）/ §3.2（`--unnamed` 与严格模式命令输出）/ §5（`strict_mode` 语义）/ §6.1（新增 `RF_BE_009` 行、更正 `RF_BE_001` / `RF_BE_005` 的真实触发路径、错误体形态）/ §7（测试矩阵）；README、README_zh、llms.txt 与 `AGENTS.md` 里「严格模式 = 单条抛异常」「自身路由仅按名字前缀排除」的旧口径一并更正。
+
 ## [2.0.2] - 2026-09-13
 
 ### Changed

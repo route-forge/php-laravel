@@ -228,9 +228,21 @@ class ForgeServiceProvider extends ServiceProvider
         // 路由名排除过滤器：common 默认排除（forge 自身端点）+ Laravel 框架内部路由。
         // 单点声明并注册为容器单例——命令层分析器与路由仓库共用同一实例，
         // 杜绝「同一排除规则在多处各写一遍」的漂移（AGENTS.md 红线）。
-        $this->app->singleton(RouteNameFilter::class, fn (): RouteNameFilter => RouteNameFilter::withExtraPrefixes(
-            self::LARAVEL_INTERNAL_ROUTE_PREFIXES,
-        ));
+        //
+        // URI 维度（withUriPrefixes）不是可选项：未命名路由没有名字可判，而包自己的
+        // 层级端点（如 `{endpoint_prefix}/manage` 带 `manage` 中间件）会被 config match
+        // 规则命中。不按 URI 排除，包就会在 route:forge:list 的未命名告警与严格模式
+        // 违规清单里把自身端点报成宿主的配置错误。前缀取自规范化后的 forge.endpoint_prefix，
+        // 与 registerMetadataEndpoint() 实际注册的路由同一来源，自定义前缀下依然自洽。
+        $this->app->singleton(RouteNameFilter::class, function ($app): RouteNameFilter {
+            /** @var Container $app */
+            $endpointPrefix = CommonRouteRepository::normalizeEndpointPrefix(
+                (string) $app->make('config')->get('forge.endpoint_prefix', '/_forge/routes'),
+            );
+
+            return RouteNameFilter::withExtraPrefixes(self::LARAVEL_INTERNAL_ROUTE_PREFIXES)
+                ->withUriPrefixes([$endpointPrefix]);
+        });
 
         // RouteAnalyzer：命令层（list / types）共用的分析器，已按 forge 配置接线。
         // 命令层禁止自行构造 filter / AliasResolver，排除规则一律取自上面的单点绑定。
@@ -363,9 +375,9 @@ class ForgeServiceProvider extends ServiceProvider
      */
     protected function registerMetadataEndpoint(): void
     {
-        $prefix = (string) config('forge.endpoint_prefix', '/_forge/routes');
-        // 规范化：确保前导 /，去除尾部 /，避免双斜杠
-        $prefix = '/' . ltrim(rtrim($prefix, '/'), '/');
+        $prefix = CommonRouteRepository::normalizeEndpointPrefix(
+            (string) config('forge.endpoint_prefix', '/_forge/routes'),
+        );
 
         $levels = config('forge.levels', []);
         $router = $this->app['router'];

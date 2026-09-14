@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\File;
 use RouteForge\Common\Analyzer\RouteAnalyzer;
 use RouteForge\Common\Contract\ForgeExceptionContract;
 use RouteForge\Common\Repository\RouteRepository;
+use RouteForge\Common\Support\StrictViolationScanner;
 use RouteForge\Common\Type\TypeGenerator;
 use RouteForge\Laravel\Adapter\LaravelRouteNormalizer;
 
@@ -20,6 +21,8 @@ use RouteForge\Laravel\Adapter\LaravelRouteNormalizer;
  */
 class RouteForgeTypesCommand extends Command
 {
+    use WritesToErrorOutput;
+
     protected $signature = 'route:forge:types
         {--level= : 仅生成指定层级下的路由类型}
         {--json : 输出 JSON 对象格式（键为路由名）}
@@ -47,7 +50,21 @@ class RouteForgeTypesCommand extends Command
         try {
             $analysis = $analyzer->analyzeRoutes($router->getRoutes(), $normalizer);
         } catch (ForgeExceptionContract $e) {
+            // 层级名拼错 / classifier 抛错 / 悬空别名（RF_BE_002/004/006/008）仍是
+            // 一条一码的精确错误；严格模式的「未归级 / 有层级无名字」已改为
+            // 全量收进 analyze()['violations']，由下方红色清单一次报完。
             $this->error("[{$e->code()}] {$e->getMessage()}");
+
+            return 1;
+        }
+
+        // 严格模式有违规 → 拦下，且不产出类型声明：
+        // d.ts 一旦被前端 commit 进仓库，缺的名字与漏归级的路由就固化成了「看起来是对的」的契约，
+        // 比一条报错难查得多。strict_mode 的语义即「配置不对不放行」，退出码 1 交给 CI 拦。
+        // 清单写 stderr：`route:forge:types > x.d.ts` 场景下 stdout 是产物，不得混入诊断信息。
+        if (StrictViolationScanner::count($analysis['violations']) > 0) {
+            $this->writeLinesToErrorOutput($analysis['warnings']);
+            $this->writeLinesToErrorOutput(StrictViolationScanner::format($analysis['violations']), 'red');
 
             return 1;
         }
@@ -75,40 +92,16 @@ class RouteForgeTypesCommand extends Command
             }
             File::put($outFile, $output);
             $this->info("Written to: {$outFile}");
-            $this->printWarnings($analysis['warnings']);
+            // 警告只走 stderr：产物文件与 stdout 都必须保持干净
+            $this->writeLinesToErrorOutput($analysis['warnings']);
 
             return 0;
         }
 
-        $this->printWarnings($analysis['warnings']);
+        // 不带 --out 时 stdout 就是 d.ts 产物本身（`> x.d.ts` 重定向场景），警告不得混入
+        $this->writeLinesToErrorOutput($analysis['warnings']);
         $this->line($output);
 
         return 0;
-    }
-
-    /**
-     * 警告输出到 stderr：不带 --out 时 stdout 即产物本身
-     * （artisan route:forge:types > x.d.ts 重定向场景），警告不得混入产物；
-     * BufferedOutput（测试/Kernel::call）未实现 ConsoleOutputInterface，
-     * getErrorOutput 回退为同一输出，警告仍可捕获。
-     *
-     * @param string[] $warnings
-     */
-    private function printWarnings(array $warnings): void
-    {
-        if ($warnings === []) {
-            return;
-        }
-
-        // 真实控制台下底层 output 是 ConsoleOutputInterface → 写 stderr；
-        // BufferedOutput（测试/Kernel::call）未实现该接口 → 回退同一输出，警告仍可捕获
-        $output = $this->output->getOutput();
-        $target = $output instanceof \Symfony\Component\Console\Output\ConsoleOutputInterface
-            ? $output->getErrorOutput()
-            : $output;
-
-        foreach ($warnings as $warning) {
-            $target->writeln("<comment>{$warning}</comment>");
-        }
     }
 }

@@ -107,7 +107,7 @@ return [
     'endpoint_middleware' => [],              // 摘要端点中间件，null 或空数组 = 不限制
     'cache_ttl'       => 3600,              // 统一缓存 TTL（秒），null=不缓存
     'cache_driver'    => null,              // null=使用默认缓存驱动
-    'strict_mode'     => false,             // 严格模式：未命中层级即抛异常
+    'strict_mode'     => false,             // 严格模式：层级配置问题计入聚合的 RF_BE_009 一次报全
     'classifier'      => null,              // 自定义分类回调，签名 fn(Route $r): ?string
 ];
 ```
@@ -135,7 +135,7 @@ return [
   内层覆盖外层的语义一致）。因此把新层级**追加到数组末尾**即可生效，无需改动已有层级；但反过来说，
   若某条新规则与已有层级冲突命中且你希望**旧层级继续优先**，则必须把新层级放到旧层级**之前**——
   顺序即优先级，越靠后越优先。
-- 全部未命中：`strict_mode=true` 抛 `RouteTierNotAssignedException`；`strict_mode=false` 时归入 `unassigned` 特殊层级（唯一的兜底机制，见 §3.1.4）。
+- 全部未命中：`strict_mode=false` 时归入 `unassigned` 特殊层级（唯一的兜底机制，见 §3.1.4）；`strict_mode=true` 时它是配置错误，与「有层级归属却无路由名」一起计入聚合的 `RF_BE_009`、一次报全（§6.1），不再逐条抛 `RouteTierNotAssignedException`。
 - `classifier` 回调优先级介于「显式 `->tier()` / `Route::group` tier」与「配置 match」之间（完整五级优先级见
   §3.1.4），用于实现复杂自定义分类逻辑（如基于 Controller 命名空间归类）。 **注意**：由于显式 `->tier()`
   会直接返回不继续匹配，classifier 实际无法覆盖显式 tier，仅对未显式标注的路由生效。返回的层级名必须在
@@ -254,6 +254,16 @@ group 属性合并逻辑），`tier` 透传到组内每条路由的 action，等
 > ⚠️ 安全考量：未标记路由会通过 `unassigned` 层级端点暴露路由名和 URI 模板。生产环境建议配合 `strict_mode=true`
 > 或显式标记所有路由，避免信息泄露。
 
+**未命名路由的可见性（common ≥ 1.2.0）**
+
+没有路由名的路由**不可能进入任何元信息**——`url()` / 层级端点 / `route_count` / d.ts / list 表格全都按名字索引，它连出现在哪里都没有。因此「谁漏写了 `->name()`」必须被显式暴露，而不是静默消失。历史上只有手写 `->tier()` 的那一种会出告警，靠 `match` 规则或 `classifier` 归级的未命名路由零信号，事后根本无从发现（v2.0.2 及之前的盲区）。现口径：
+
++ 分析器/仓库对每条未命名路由做**只读探测**（`TierResolver::probe()`，与 `resolve()` 共享同一套优先级求值，**永不抛异常**——严格模式不因此新增失败模式），据此知道它本该进哪个层级、是哪一级优先级把它归进去的（`explicit` / `classifier` / `match` / 层级名无效 / 未命中）。
++ **被层级规则命中**的未命名路由 = 真实配置错误，进入 `warnings` 通道（§3.2 表格警告行 / `--json` 的 `warnings` / types 的 stderr），文案含 URI、HTTP 方法、中间件与命中来源，可直接 grep 定位。「显式 `->tier()` 无名」的历史整句原样保留，按 substring 断言的下游脚本不受影响。
++ **未命中任何层级**的未命名路由本就不需要名字（不在 forge 管辖范围内），不进 `warnings`——否则「warnings 非空即失败」的 CI 门禁会被无关路由长期打断。它们只出现在全量清单视图 `route:forge:list --unnamed`（§3.2）里。
++ `strict_mode=true` 时两类各归一类违规（`missing_name` / `unassigned`），由聚合的 `RF_BE_009` 一次报全（§6.1），不再是「第一条 `RF_BE_001` 就中断」。
++ 文案与判定单点在 common（`RouteAnalyzer` / `Support\StrictViolationScanner`），两个适配包共用，不各自再写一份「哪里配错了」。
+
 #### 3.1.5 层级元信息查询端点
 
 包在 `endpoint_prefix`（默认 `/_forge/routes`）下注册端点，按层级返回路由元信息（名称 + URI + method + 参数定义），供前端按需懒加载：
@@ -264,7 +274,12 @@ GET /_forge/routes/{level}   # 返回该层级下所有命名路由的元信息
 
 `{level}` 支持特殊值 `unassigned`：返回所有未命中任何层级的命名路由，响应结构与已定义层级完全一致。
 
-**内部路由排除规则**：包自身端点路由（`forge.routes.*` / `forge.manager.*`）与框架内部路由（如 Laravel 12+ 的 `storage.*`）不属于用户业务路由，在所有元信息端点扫描中一律排除——不出现在任何层级端点、`unassigned` 明细、摘要 `route_count` 统计中，与 `route:forge:list` / `route:forge:types` / 管理器页面的过滤口径一致。这一规则同时保证 `strict_mode=true` 时包自身路由（永远不带 tier）不会触发 `RF_BE_001`，严格模式仅校验用户业务路由。
+**内部路由排除规则**：包自身端点路由（`forge.routes.*` / `forge.manager.*`）与框架内部路由（如 Laravel 12+ 的 `storage.*`）不属于用户业务路由，在所有元信息端点扫描中一律排除——不出现在任何层级端点、`unassigned` 明细、摘要 `route_count` 统计中，与 `route:forge:list` / `route:forge:types` / 管理器页面的过滤口径一致。这一规则同时保证 `strict_mode=true` 时包自身路由不会计入 `RF_BE_009` 聚合（§6.1），严格模式仅校验用户业务路由。
+
+排除有**两个维度**（`RouteNameFilter`，容器单例，命令层分析器与仓库共用同一实例）：
+
++ **按路由名前缀**：`forge.routes.` / `forge.manager.` + 适配包追加的框架内部前缀（`storage.`）。
++ **按 URI 前缀**（common ≥ 1.2.0）：未命名路由没有名字可判，而包的层级端点 `GET /{endpoint_prefix}/{level}` 本身**就是未命名路由**——配了 `levels.{level}.endpoint_middleware` 后，它带上的中间件会被该层级的 `match.middleware` 规则命中。不按 URI 排除，包就会在 `route:forge:list` 的未命名告警与 `RF_BE_009` 违规清单里把自家端点报成宿主的配置错误（宿主一配端点中间件就必然 500）。排除前缀取**规范化后的 `endpoint_prefix`**，与端点注册、摘要下发、types 文件头同源；匹配按 URI 段进行，`_forge/routes` 不会误伤 `_forge/routeship`。
 
 另：`routes` 字段为按路由名索引的对象；层级下无路由时序列化为 `{}`（而非 `[]`）。
 
@@ -543,6 +558,9 @@ php artisan route:forge:list --json
 php artisan route:forge:list --unassigned
 # 仅显示别名条目（旧名 → 真实路由名，见 §3.1.7）
 php artisan route:forge:list --aliases
+# 全量未命名路由清单（含未命中任何层级者，见 §3.1.4 未命名路由的可见性）
+php artisan route:forge:list --unnamed
+php artisan route:forge:list --unnamed --level=admin
 ```
 
 输出示例：
@@ -573,10 +591,12 @@ php artisan route:forge:list --aliases
 - `--unassigned` 仅显示未命中任何层级的路由，与 `--level=unassigned` 等价。
 - 未分配路由在 table 输出中以 `unassigned` 显示（与 JSON 输出及特殊层级名保持一致），并**整行品红着色**（着色优先级见上方表格说明）。
 - 表格上方输出**层级统计汇总行**（`Tier counts: ...`，含 0 路由的层级与 `unassigned`；计数在过滤前统计，别名跟随目标层级计入，与摘要 `route_count` 口径一致）。`unassigned` 非零时追加 warn 提示检查 match 规则或补显式 tier。
-- 路由解析抛出 Forge 异常（`RF_BE_001` 等）时输出 `[错误码] 消息` 并以退出码 1 结束，不打印堆栈。**一次遍历内的 fail-fast 顺序**：先逐条解析路由层级（`RF_BE_001` / `002` / `004` / `005` / `006`），再解析别名映射（`RF_BE_008` 悬空别名）；两类问题并存时先报路由侧错误——修掉路由归属后别名问题会在同一次运行里接着暴露。
-- 「有 tier 无 name」的路由（§3.1.4）在 table 模式输出 warning 行、JSON 模式合入 `warnings`——该类路由无法进入任何元信息，命令层直接暴露避免静默消失。
-- `warnings` 覆盖的非致命配置问题：**别名撞车（真实路由优先）/ 同一别名在多条路由上重复声明 / 宏与 config 指向不同目标 / 路由名跨层级重复注册（§3.1.7）/ 有 tier 无 name**。
+- 路由解析抛出 Forge 异常（`RF_BE_002` / `004` / `006` / `008`：层级名拼错、`classifier` 抛错、悬空别名）时输出 `[错误码] 消息` 并以退出码 1 结束，不打印堆栈。**一次遍历内的 fail-fast 顺序**：先逐条解析路由层级，再解析别名映射（`RF_BE_008` 悬空别名）；两类问题并存时先报路由侧错误。
+- **`strict_mode=true` 的「缺层级 / 缺名字」不走上面的单条中断**（common ≥ 1.2.0）：统计行与表格照常输出，末尾追加由 common `StrictViolationScanner::format()` 单点生成的**红色违规清单**（`missing_name` 与 `unassigned` 两组一次报全，另附 `unresolved` 信息组），退出码 `1`。逐条 fail-fast 的旧行为会让人「修一条刷一条」，而排查场景下命令本身必须还能跑出全貌。`--json` 时 stdout 仍是**纯 JSON 产物**（清单改投 stderr），退出码同样为 `1`——CI 用退出码拦停，脚本解析 stdout 不会被脏输出打断。清单是**追加**而非替代：过滤后 0 行早退时照样输出。
+- 「有 tier 无 name」的路由（§3.1.4）在 table 模式输出 warning 行、JSON 模式合入 `warnings`——该类路由无法进入任何元信息，命令层直接暴露避免静默消失。历史上只有手写 `->tier()` 的那一种会开口，靠 `match` 规则 / `classifier` 归级的完全静默；现按命中来源逐条暴露（含 URI / HTTP 方法 / 中间件，可直接定位）。
+- `warnings` 覆盖的非致命配置问题：**别名撞车（真实路由优先）/ 同一别名在多条路由上重复声明 / 宏与 config 指向不同目标 / 路由名跨层级重复注册（§3.1.7）/ 有 tier 无 name（含 match / classifier 命中来源）**。
 - 警告在任何过滤结果下都输出：过滤后 0 行早退时同样可见。
+- **`--unnamed` 是独立视图**（§3.1.4）：数据来自分析器的 `unnamed` 全量结构化结果，而非 `rows`，因此按层级分组打印**所有**未命名路由——包括未命中任何层级、按设计不进 `warnings` 的那批。走该分支时**不**打印表格 / 统计 / `warnings`（同一事实双写会让两处输出互相打脸），退出码恒 `0`（未命名本身不是错误，是否算错由 `strict_mode` 决定）。可与 `--level` 组合过滤，取值除已配置层级与 `unassigned` 外还接受虚拟分组 `unresolved`（层级名无效 / `classifier` 抛错的未命名路由）；与 `--json` / `--unassigned` / `--aliases` 同时给出判为参数冲突并退出 `1`，不静默丢掉任何一侧。
 - 别名条目（§3.1.7）跟随目标路由解析到的**每一个**层级与过滤条件显示（目标名重复注册命中多层级时逐层级出行），`Alias Of` 列（JSON 中为 `alias_of` 字段）标注指向的真实路由名；撞车被忽略等非致命问题以 warnings 提示（table 模式在表格前输出警告行）。
 
 ##### `--json` 输出结构
@@ -653,7 +673,8 @@ php artisan route:forge:types --json
 - `--json` 输出中空层级序列化为 `{}`（与「按路由名索引的对象」契约一致，不会出现 `[]`）。
 - d.ts 文件头「端点」注释取实际 `endpoint_prefix`（经与端点注册相同的规范化）。
 - 警告输出到 **stderr**，集合与 `route:forge:list` 的 `warnings` 同源（别名撞车 / 一名多声明 / 宏与 config 目标冲突 / 路由名跨层级重复注册 / 有 tier 无 name，见上文）；stdout 即 d.ts / `--json` 产物本身，因此重定向产物请用 `php artisan route:forge:types --out=...` 或 `> file`，**不要用 `2>&1` 合并两条流**，否则警告会混进文件头。
-- 路由解析抛出 Forge 异常（`RF_BE_001` 等）时输出 `[错误码] 消息` 并以退出码 1 结束，不打印堆栈；一次遍历内的 fail-fast 顺序与 `route:forge:list` 一致（先路由层级解析，后别名映射解析）。
+- 路由解析抛出 Forge 异常（`RF_BE_002` / `004` / `006` / `008`）时输出 `[错误码] 消息` 并以退出码 1 结束，不打印堆栈；一次遍历内的 fail-fast 顺序与 `route:forge:list` 一致（先路由层级解析，后别名映射解析）。
+- **`strict_mode=true` 且有违规（缺层级 / 缺名字）时：类型声明不产出**（common ≥ 1.2.0）。命令把红色违规清单（与 HTTP `RF_BE_009` 同源文本）写到 **stderr**、以退出码 `1` 结束，既不写 `--out` 目标文件（也不会覆盖它），也不往 stdout 输出任何 d.ts / `--json` 结构。理由：本命令是前端类型的**唯一生产者**，带病的 `d.ts` 一旦被 commit，缺的名字与漏归级的路由就固化成「看起来是对的」契约，比一条报错难查得多；`strict_mode` 的语义本就是配置不对不放行，CI 用退出码拦停即可。违规为零时输出与警告通道均不变。
 
 生成结果示例（d.ts）：
 
@@ -874,7 +895,7 @@ PUT /_forge/manager/api/config   # 更新配置文件
 | `endpoint_middleware`                  | `string[]\|string\|null`     | `[]`                   | 摘要端点（`GET /{endpoint_prefix}`）中间件；单个字符串等价于只含它的数组；空数组或 null 不限制                                                                                                    |
 | `cache_ttl`                            | `int\|null`                  | `3600`                 | 统一缓存 TTL（秒）；`null` 不缓存，`0` 永久缓存，负值视为 `null`（不缓存）。同时作用于所有层级端点与摘要端点。⚠️ `0` 遵循 Laravel Cache TTL 惯例（永久），非 HTTP `Cache-Control: max-age=0` 含义 |
 | `cache_driver`                         | `string\|null`               | `null`                 | 缓存驱动；`null` 用默认驱动，可指定 `redis`/`file`/`array` 等                                                                                                                                     |
-| `strict_mode`                          | `bool`                       | `false`                | 严格模式；未命中层级时抛异常（true）或归入 `unassigned` 特殊层级（false）                                                                                                                         |
+| `strict_mode`                          | `bool`                       | `false`                | 严格模式。`true`：「命名路由未命中任何层级」与「有层级归属却无路由名」都是配置错误，由聚合的 `RF_BE_009` 一次报全（HTTP 500；命令行为红色清单 + 退出码 `1`，见 §3.2）。`false`：未命中的命名路由归入 `unassigned` 特殊层级                                                                                       |
 | `scheme_version`                       | `int`                        | `1`                    | 摘要端点返回的响应格式版本号（`schemeVersion` 字段）；后续迭代引入不兼容的格式变更时递增，前端据此做版本兼容                                                                                      |
 | `classifier`                           | `callable\|null`             | `null`                 | 自定义分类回调，签名 `fn(Route $r): ?string`，返回层级名或 null。返回的层级名必须在 `levels` 配置中存在，否则抛 `UnknownClassifierTierException`                                                  |
 | `aliases`                              | `array<string, string>`      | `[]`                   | 路由别名映射表（见 §3.1.7）：键=别名（旧路由名），值=真实路由名（新名）。与 `->forgeAlias()` 宏并用时宏优先；悬空别名抛 `AliasTargetException`                                                    |
@@ -888,27 +909,31 @@ PUT /_forge/manager/api/config   # 更新配置文件
 
 | 错误类                                  | code        | 触发场景                                                                                                                                                          | HTTP 状态 |
 |-----------------------------------------|-------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
-| `RouteTierNotAssignedException`         | `RF_BE_001` | `strict_mode=true` 且路由未命中任何层级                                                                                                                           | 500       |
+| `RouteTierNotAssignedException`         | `RF_BE_001` | **单条语义保留**：`TierResolver::resolve()` 直接调用时，`strict_mode=true` 且该条命名路由未命中任何层级即抛。forge 的两条消费路径（HTTP 端点与 Artisan 命令）自 common 1.2.0 起**不再逐条抛它**——未归级路由统一进 `RF_BE_009` 聚合，避免「修一条刷一条」 | 500       |
 | `UnknownLevelException`                 | `RF_BE_002` | 请求的层级名不在 `levels` 配置中                                                                                                                                  | 404       |
 | `CacheDriverException`                  | `RF_BE_003` | 指定的 `cache_driver` 不可用                                                                                                                                      | 500       |
 | `ClassifierException`                   | `RF_BE_004` | `classifier` 回调抛错                                                                                                                                             | 500       |
-| `RouteMissingNameException`             | `RF_BE_005` | `strict_mode=true` 且路由设置了 tier 但没有路由名                                                                                                                 | 500       |
+| `RouteMissingNameException`             | `RF_BE_005` | **单条语义保留**：`resolve()` 直接调用时，`strict_mode=true` 且路由设置了 tier 但没有路由名即抛。⚠️ 该错误码在 forge 的读路径上**此前一直是死代码**——分析器与仓库都在 `resolve()` 之前跳过无名路由，SPEC 承诺的 500 从不触发；1.2.0 起该场景由 `RF_BE_009` 的 `missing_name` 组真正报出（见下方说明） | 500       |
 | `UnknownClassifierTierException`        | `RF_BE_006` | `classifier` 返回的层级名不在 `levels` 配置中                                                                                                                     | 500       |
 | `DiscardedRegistrarAttributesException` | `RF_BE_007` | 尾部链式属性被丢弃（`Route::group(...)->tier(...)`）：自 v1.4.x 起不再自动抛出，改为日志告警（`strict_mode=true` 记 `error`、默认记 `warning`），异常类保留供兼容 |
 | `AliasTargetException`                  | `RF_BE_008` | 别名指向的路由名不存在（悬空别名，见 §3.1.7）                                                                                                                     | 500       |
+| `RouteStrictViolationException`         | `RF_BE_009` | `strict_mode=true` 时**整表违规聚合**（common ≥ 1.2.0）：HTTP 读路径取数前预扫描，一次报全「有层级归属却无路由名」(`missing_name`) 与「命名路由未归级」(`unassigned`) 两类；`unresolved`（层级名拼错 / `classifier` 抛错）仅作信息附录，仍由其各自的精确错误码负责 | 500       |
+
+**`RF_BE_009` 的错误体形态**：`code` / `httpStatus()` 仍由 `ForgeExceptionContract` 统一驱动，无需为它单开分支；`message` 即 `StrictViolationScanner::format()` 生成的人读分组清单（命令行红色清单与 HTTP 错误体**同源同措辞**，不各写一份）。异常另有 `violations()` 输出结构化清单（`missing_name` / `unassigned` / `unresolved` 三组恒定存在，条目含 `uri` / `methods` / `level` / `source` 或 `name` / `middleware`）。**该结构化字段仅在 `APP_DEBUG=true` 时随错误体下发**（`error.violations`）：清单本身是宿主越界路由的名字与 URI 目录，属内部结构信息，生产形态只给 `code` + `message`。命令行侧 `route:forge:list` / `route:forge:types` 消费同一份 `violations`（§3.2）。
 
 ## 7. 测试矩阵
 
 | 测试维度     | 覆盖点                                                                                                                                                                                                                                                                                                                              |
 |--------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 层级分配     | 显式 `->tier()`、资源路由（resource/apiResource/singleton/apiSingleton）tier 与 `->only()` 组合、配置 match、`Route::group`（数组/链式）透传、classifier（含返回非串降级、抛错包装为 ClassifierException）、unassigned 兜底、优先级覆盖、**多层级同时命中取最后一个**                                                               |
+| 未命名可见性与严格模式聚合（common ≥ 1.2.0） | `match` / `classifier` 命中的未命名路由进 warnings（历史只报显式 `->tier()`）；包自身层级端点（未命名 + 带 `endpoint_middleware` 会被该层级 match 命中）在 warnings、`RF_BE_009` 违规清单、`--unnamed` 视图与端点统计中**零泄漏**；严格模式 HTTP 一次报全 `missing_name` + `unassigned`、命令行表格照常 + 红色清单 + 退出码 1；`route:forge:types` 违规时不产出产物；`--unnamed` 独立视图不与表格双写、与 `--json` / `--unassigned` / `--aliases` 互斥、可按虚拟分组 `unresolved` 过滤；结构化 `violations` 仅 `APP_DEBUG=true` 下发 |
 | 路由别名     | `->forgeAlias()` 宏（单个/多个/空参报错）、config `aliases`、**宏优先于 config**、别名与真实路由名撞车忽略（list warnings）、悬空别名 RF_BE_008、别名元信息与目标纯复制一致、跟随目标层级（含 unassigned）、摘要 `route_count` 计入别名、`route:forge:types` 别名条目、`route:forge:list --aliases` 过滤、别名随扫描缓存            |
 | Artisan 命令 | `route:forge:list` 输出格式（table/json）、按层级过滤、unassigned 路由显示、`--level` 参数过滤                                                                                                                                                                                                                                      |
 | Artisan 命令 | `route:forge:types` 生成 d.ts 二级结构（层级 → 路由名）、`--level` 过滤、`--json` 二级 JSON 输出、`--out` 写文件                                                                                                                                                                                                                    |
 | Artisan 命令 | `route:forge:clear` 全量清除缓存、按层级清除、无效层级名报错                                                                                                                                                                                                                                                                        |
 | 中间件匹配   | `middleware_match` 简单模式（any/all）、高级模式（DNF 数组）、边界情况（空数组、单元素、**越界索引、空子句跳过、未知模式降级为 any**）；prefix **按段匹配**（`admin` 不命中 `administrator`）                                                                                                                                       |
 | 端点响应     | `/_forge/routes/{level}` 返回结构、`/_forge/routes` 摘要端点返回结构、层级+摘要**缓存命中**、未声明层级 404、层级端点中间件保护、摘要端点中间件保护、**自定义 `endpoint_prefix` 注册与规范化**、`parameter_defaults` 空值序列化为 `{}`、**空层级 `routes` 序列化为 `{}`**                                                           |
-| 严格模式     | `strict_mode=true` 未命中抛异常、`false` 未命中归入 unassigned 特殊层级、**包自身路由豁免严格校验（全部用户路由已分配时端点 200）**                                                                                                                                                                                                 |
+| 严格模式     | `strict_mode=true` 未命中与「有层级无名字」计入聚合 `RF_BE_009` 一次报全（`false` 时未命中归入 unassigned 特殊层级）、**包自身路由豁免严格校验（全部用户路由已分配时端点 200）**、**带 `endpoint_middleware` 的自身层级端点也不被自身 match 规则算成违规**                                                                                                                                       |
 | Laravel 兼容 | CI（GitHub Actions）跑 PHP 8.2–8.5 × Laravel 11/12/13 矩阵（排除 PHP 8.2 × Laravel 13 组合）；资源路由、嵌套 group、链式语法、Router 重绑共享 RouteCollection                                                                                                                                                                       |
 | 缓存         | `array`/`file` 驱动（store 无关，`redis` 复用同一 `Repository` 接口，无专属逻辑）、TTL 正数过期、手动失效、`0` 永久缓存、`cache_ttl=null` 不缓存、keys 索引清理、debug 模式跳过读写                                                                                                                                                 |
 | 管理器页面   | `GET /_forge/manager` 页面渲染、`/api/routes`（含 forge 自身路由过滤与 unassigned 归属）、`/api/config` 读取、配置生成器层级名转义（`php -l` 实测防注入）与**不可编辑项（`endpoint_middleware` / `manager_allowed_ips`）保存透传**、**IP 白名单（默认仅回环、局域网 IP 精确匹配、`*` 放行、空值不限制）**；仅 `APP_DEBUG=true` 注册 |

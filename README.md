@@ -52,7 +52,8 @@ Plus:
 - **Summary endpoint** `GET /_forge/routes` — all-tier overview + global config + unassigned info for client auto-discovery.
 - **Unified caching** — shared TTL and `cache_driver` across all endpoints; automatically skipped in dev (`APP_DEBUG=true`).
 - **Artisan commands** — `route:forge:list`, `route:forge:types`, `route:forge:clear`.
-- **Strict mode** — `strict_mode=true` throws `RouteTierNotAssignedException` on a miss; otherwise routes fall into `unassigned`.
+- **Strict mode** — `strict_mode=true` reports every route configuration problem at once in one aggregated error (`RF_BE_009`: named routes matching no tier, plus routes assigned to a tier but missing a name); otherwise unmatched routes fall into `unassigned`.
+- **Unnamed-route visibility** — a route without a name can never reach `url()` or any metadata endpoint, so it is surfaced explicitly: as a warning when a tier rule matches it, and in full via `route:forge:list --unnamed`.
 - **Manager page** — a dev-only visual panel at `GET /_forge/manager` (overview, search/filter, config editing).
 
 ## Requirements
@@ -147,7 +148,7 @@ It is purely an accelerator layered on top of the endpoints:
 ### Artisan commands
 
 ```bash
-# Show tier assignment (--level to filter, --json, --unassigned)
+# Show tier assignment (--level to filter, --json, --unassigned, --aliases, --unnamed)
 php artisan route:forge:list
 
 # Emit TypeScript declarations (stdout by default; --out file; --level / --json)
@@ -168,7 +169,7 @@ php artisan route:forge:clear
 | `endpoint_middleware` | `string[]` | `[]` | Middleware on the summary endpoint; empty/null = unrestricted |
 | `cache_ttl` | `int\|null` | `3600` | Shared cache TTL (seconds); `null` = no cache, `0` = forever, negative treated as `null` |
 | `cache_driver` | `string\|null` | `null` | Cache driver; `null` uses the default |
-| `strict_mode` | `bool` | `false` | Throw on a tier miss (`true`) or fall into `unassigned` (`false`) |
+| `strict_mode` | `bool` | `false` | Aggregate all tier problems into one `RF_BE_009` report (`true`) or fall into `unassigned` (`false`) |
 | `scheme_version` | `int` | `1` | Summary response format version (`schemeVersion`) |
 | `classifier` | `callable\|null` | `null` | Custom classifier `fn(Route $r): ?string` |
 
